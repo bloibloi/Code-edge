@@ -83,6 +83,12 @@ input::placeholder { color: #565f6e; }
 .secondary-button { border: 1px solid var(--line); color: #aeb7c8; background: rgba(255,255,255,.025); }
 .section-title-row { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
 .latency-chip { padding: 5px 8px; border: 1px solid rgba(239,189,99,.17); border-radius: 7px; color: #f0c981; background: rgba(239,189,99,.07); font-size: 9px; font-weight: 800; }
+.latency-chip.fast { border-color: rgba(86,217,166,.2); color: #aee8d2; background: rgba(86,217,166,.07); }
+.pairing-code { display: grid; justify-items: center; gap: 7px; margin: 18px 0 5px; padding: 20px 14px; border: 1px solid rgba(113,141,255,.24); border-radius: 14px; background: rgba(104,126,236,.07); }
+.pairing-code span { color: #e4e9ff; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 30px; line-height: 1; font-weight: 760; letter-spacing: .12em; }
+.pairing-code small { color: var(--muted); font-size: 10px; }
+.manual-source summary { color: #abb4c4; cursor: pointer; font-size: 11px; font-weight: 700; }
+.manual-source[open] summary { margin-bottom: 8px; }
 .instructions ol { display: grid; gap: 15px; margin: 19px 0; padding: 0; list-style: none; }
 .instructions li { display: grid; grid-template-columns: 24px 1fr; gap: 10px; align-items: start; }
 .instructions li > span { width: 24px; height: 24px; display: grid; place-items: center; border: 1px solid rgba(119,141,236,.18); border-radius: 7px; color: #aebcff; background: rgba(108,140,255,.07); font-size: 9px; font-weight: 800; }
