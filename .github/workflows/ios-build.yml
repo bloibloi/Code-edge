@@ -1,0 +1,36 @@
+name: iOS compile check
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "ios/**"
+      - ".github/workflows/ios-build.yml"
+  pull_request:
+    paths:
+      - "ios/**"
+      - ".github/workflows/ios-build.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: macos-15
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install XcodeGen
+        run: brew install xcodegen
+      - name: Generate project
+        run: xcodegen generate --spec ios/project.yml --project ios
+      - name: Compile without signing
+        run: >-
+          xcodebuild
+          -project ios/iPhoneRemote.xcodeproj
+          -scheme iPhoneRemote
+          -sdk iphonesimulator
+          -destination 'generic/platform=iOS Simulator'
+          CODE_SIGNING_ALLOWED=NO
+          build
