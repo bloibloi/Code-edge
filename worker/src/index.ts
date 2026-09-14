@@ -103,7 +103,11 @@ export default {
       } else if (url.pathname === "/v1/pair/status" && request.method === "GET") {
         response = await pairingStatus(url, env);
       } else if (url.pathname === "/health") {
-        response = json({ ok: true });
+        response = json({
+          ok: true,
+          streamConfigured: Boolean(env.CLOUDFLARE_ACCOUNT_ID && env.CLOUDFLARE_API_TOKEN),
+          pairingStorageConfigured: Boolean(env.PAIRING_SESSION)
+        });
       } else {
         response = json({ error: "Not found" }, 404);
       }
@@ -113,7 +117,10 @@ export default {
       return new Response(response.body, { status: response.status, headers });
     } catch (error) {
       console.error(error);
-      const response = json({ error: "The pairing service could not complete the request." }, 500);
+      const message = error instanceof PublicError
+        ? error.message
+        : "The pairing service could not complete the request.";
+      const response = json({ error: message }, error instanceof PublicError ? 502 : 500);
       const headers = new Headers(response.headers);
       Object.entries(cors).forEach(([key, value]) => headers.set(key, value));
       return new Response(response.body, { status: response.status, headers });
@@ -182,7 +189,7 @@ async function pairingStatus(url: URL, env: Env): Promise<Response> {
 
 async function createCloudflareLiveInput(env: Env, code: string) {
   if (!env.CLOUDFLARE_ACCOUNT_ID || !env.CLOUDFLARE_API_TOKEN) {
-    throw new Error("Cloudflare credentials are not configured");
+    throw new PublicError("Cloudflare Stream credentials are not configured in Worker secrets.");
   }
   const response = await fetch(
     `https://api.cloudflare.com/client/v4/accounts/${env.CLOUDFLARE_ACCOUNT_ID}/stream/live_inputs`,
@@ -204,7 +211,9 @@ async function createCloudflareLiveInput(env: Env, code: string) {
   const whipPublishURL = payload.result?.webRTC?.url;
   const whepPlaybackURL = payload.result?.webRTCPlayback?.url;
   if (!response.ok || !payload.success || !whipPublishURL || !whepPlaybackURL) {
-    throw new Error(payload.errors?.[0]?.message || `Cloudflare Live Input failed (${response.status})`);
+    throw new PublicError(
+      `Cloudflare Stream rejected the Live Input request: ${payload.errors?.[0]?.message || `HTTP ${response.status}`}`
+    );
   }
   return { whipPublishURL, whepPlaybackURL };
 }
@@ -235,3 +244,5 @@ function randomToken(): string {
 function json(value: unknown, status = 200): Response {
   return Response.json(value, { status, headers: { "Content-Type": "application/json; charset=utf-8" } });
 }
+
+class PublicError extends Error {}
