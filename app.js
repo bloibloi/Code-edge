@@ -3,6 +3,8 @@
 const STORAGE_KEY = "iphone-screen-playback-url";
 const LEGACY_STORAGE_KEY = "iphone-screen-whep-url";
 const RETRY_DELAY = 5000;
+const PAIR_POLL_DELAY = 1500;
+const PAIRING_API = String(window.IPHONE_REMOTE_API || "").replace(/\/$/, "");
 
 const elements = {
   status: document.querySelector("#status"),
@@ -24,6 +26,12 @@ const elements = {
   fitButton: document.querySelector("#fitButton"),
   fullscreenButton: document.querySelector("#fullscreenButton"),
   liveBadge: document.querySelector("#liveBadge"),
+  pairButton: document.querySelector("#pairButton"),
+  cancelPairButton: document.querySelector("#cancelPairButton"),
+  pairingCode: document.querySelector("#pairingCode"),
+  pairingDigits: document.querySelector("#pairingDigits"),
+  pairingTimer: document.querySelector("#pairingTimer"),
+  pairingCopy: document.querySelector("#pairingCopy"),
   toast: document.querySelector("#toast")
 };
 
@@ -34,6 +42,10 @@ let stoppedByUser = false;
 let connectionAttempt = 0;
 let toastTimer = null;
 let playbackMode = "none";
+let pairingToken = "";
+let pairingExpiresAt = 0;
+let pairingTimer = null;
+let pairingPollTimer = null;
 
 function setStatus(state, text) {
   elements.status.dataset.state = state;
@@ -53,6 +65,88 @@ function showToast(message) {
   elements.toast.textContent = message;
   elements.toast.classList.add("visible");
   toastTimer = setTimeout(() => elements.toast.classList.remove("visible"), 1800);
+}
+
+function stopPairing(reset = true) {
+  clearInterval(pairingTimer);
+  clearTimeout(pairingPollTimer);
+  pairingTimer = null;
+  pairingPollTimer = null;
+  pairingToken = "";
+  pairingExpiresAt = 0;
+  elements.pairButton.disabled = false;
+  elements.pairButton.textContent = "Generate pairing code";
+  elements.cancelPairButton.classList.add("hidden");
+  if (reset) {
+    elements.pairingCode.classList.add("hidden");
+    elements.pairingCopy.textContent = "Generate a private code, enter it in the iPhone Remote app, then start the broadcast.";
+  }
+}
+
+function updatePairingCountdown() {
+  const seconds = Math.max(0, Math.ceil((pairingExpiresAt - Date.now()) / 1000));
+  const minutes = Math.floor(seconds / 60);
+  elements.pairingTimer.textContent = `Expires in ${minutes}:${String(seconds % 60).padStart(2, "0")}`;
+  if (seconds === 0) {
+    stopPairing(false);
+    elements.pairingTimer.textContent = "Code expired";
+    elements.pairingCopy.textContent = "Generate a new code to try again.";
+  }
+}
+
+async function generatePairingCode() {
+  if (!PAIRING_API) {
+    showToast("Pairing server is not configured yet");
+    return;
+  }
+  stopPairing();
+  elements.pairButton.disabled = true;
+  elements.pairButton.textContent = "Creating secure session…";
+  try {
+    const response = await fetch(`${PAIRING_API}/v1/pair/create`, { method: "POST" });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || "Could not create a pairing code");
+    pairingToken = data.sessionToken;
+    pairingExpiresAt = Date.parse(data.expiresAt);
+    elements.pairingDigits.textContent = `${data.code.slice(0, 3)} ${data.code.slice(3)}`;
+    elements.pairingCode.classList.remove("hidden");
+    elements.cancelPairButton.classList.remove("hidden");
+    elements.pairButton.textContent = "Waiting for iPhone…";
+    elements.pairingCopy.textContent = "Enter this code in the iPhone Remote app.";
+    updatePairingCountdown();
+    pairingTimer = setInterval(updatePairingCountdown, 1000);
+    pollPairingStatus();
+  } catch (error) {
+    stopPairing();
+    showToast(error.message || "Pairing service unavailable");
+  }
+}
+
+async function pollPairingStatus() {
+  if (!pairingToken || Date.now() >= pairingExpiresAt) return;
+  try {
+    const response = await fetch(`${PAIRING_API}/v1/pair/status?token=${encodeURIComponent(pairingToken)}`);
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || "Pairing expired");
+    if (data.paired && classifyUrl(data.playbackURL) === "whep") {
+      localStorage.setItem(STORAGE_KEY, data.playbackURL);
+      localStorage.removeItem(LEGACY_STORAGE_KEY);
+      elements.playbackUrl.value = data.playbackURL;
+      elements.forgetButton.classList.remove("hidden");
+      stopPairing(false);
+      elements.pairingTimer.textContent = "iPhone connected";
+      elements.pairingCopy.textContent = "Paired. Start the broadcast on your iPhone.";
+      showToast("iPhone paired");
+      await connectPlayback();
+      return;
+    }
+  } catch (error) {
+    stopPairing(false);
+    elements.pairingTimer.textContent = "Pairing ended";
+    elements.pairingCopy.textContent = error.message || "Generate a new code to try again.";
+    return;
+  }
+  pairingPollTimer = setTimeout(pollPairingStatus, PAIR_POLL_DELAY);
 }
 
 function getSavedUrl() {
@@ -241,6 +335,8 @@ async function saveAndConnect() {
 }
 
 elements.saveButton.addEventListener("click", saveAndConnect);
+elements.pairButton.addEventListener("click", generatePairingCode);
+elements.cancelPairButton.addEventListener("click", () => stopPairing());
 elements.playbackUrl.addEventListener("keydown", (event) => {
   if (event.key === "Enter") saveAndConnect();
 });
@@ -257,8 +353,9 @@ elements.reconnectButton.addEventListener("click", () => connectPlayback());
 elements.emptyAction.addEventListener("click", () => {
   if (getSavedUrl()) connectPlayback();
   else {
-    elements.playbackUrl.scrollIntoView({ behavior: "smooth", block: "center" });
-    elements.playbackUrl.focus();
+    elements.pairButton.scrollIntoView({ behavior: "smooth", block: "center" });
+    if (PAIRING_API) elements.pairButton.focus();
+    else elements.playbackUrl.focus();
   }
 });
 elements.forgetButton.addEventListener("click", async () => {
