@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="theme-color" content="#080b12">
-  <meta name="description" content="Low-latency iPhone screen viewer powered by WebRTC.">
+  <meta name="description" content="Private iPhone screen viewer for Cloudflare Stream.">
   <title>iPhone Screen</title>
   <link rel="stylesheet" href="./styles.css">
   <script src="./app.js" defer></script>
@@ -53,6 +53,7 @@
           <div class="phone" id="phone">
             <div class="island" aria-hidden="true"></div>
             <video id="screenVideo" autoplay muted playsinline></video>
+            <iframe id="streamFrame" class="hidden" title="iPhone live stream" allow="autoplay; encrypted-media; picture-in-picture" allowfullscreen></iframe>
 
             <div class="empty-state" id="emptyState">
               <div class="broadcast-icon" aria-hidden="true">
@@ -63,7 +64,7 @@
                 </svg>
               </div>
               <strong id="emptyTitle">Connect your stream</strong>
-              <span id="emptyMessage">Add your WHEP playback URL to begin.</span>
+              <span id="emptyMessage">Add your Cloudflare playback URL to begin.</span>
               <button class="small-button" id="emptyAction" type="button">Set up stream</button>
             </div>
 
@@ -80,12 +81,12 @@
       <aside class="side-panel">
         <section class="panel-section">
           <p class="eyebrow">STREAM SOURCE</p>
-          <h2>Cloudflare WebRTC</h2>
-          <p class="section-copy">Paste the <strong>Playback WHEP URL</strong> from your Cloudflare Stream live input. It is saved only in this browser.</p>
+          <h2>Cloudflare Stream</h2>
+          <p class="section-copy">Paste the Cloudflare <strong>iframe playback URL</strong> for PRISM/RTMPS, or a WHEP URL for WebRTC. It is saved only in this browser.</p>
 
-          <label for="whepUrl">WHEP playback URL</label>
+          <label for="playbackUrl">Cloudflare playback URL</label>
           <div class="url-row">
-            <input id="whepUrl" type="url" inputmode="url" autocomplete="off" spellcheck="false" placeholder="https://customer-…/webRTC/play">
+            <input id="playbackUrl" type="url" inputmode="url" autocomplete="off" spellcheck="false" placeholder="https://customer-…/…/iframe">
             <button class="paste-button" id="pasteButton" type="button">Paste</button>
           </div>
 
@@ -97,32 +98,32 @@
           <div class="section-title-row">
             <div>
               <p class="eyebrow">IPHONE SETUP</p>
-              <h2>Start broadcasting</h2>
+              <h2>Stream with PRISM</h2>
             </div>
-            <span class="latency-chip">&lt;1 sec</span>
+            <span class="latency-chip">~5+ sec</span>
           </div>
 
           <ol>
             <li>
               <span>1</span>
-              <div><strong>Create a Cloudflare live input</strong><small>Copy its WHIP and WHEP WebRTC URLs.</small></div>
+              <div><strong>Create an HLS/DASH live input</strong><small>Copy its RTMPS server URL and stream key.</small></div>
             </li>
             <li>
               <span>2</span>
-              <div><strong>Add WHIP URL to Larix</strong><small>Use Larix Screencaster on your iPhone.</small></div>
+              <div><strong>Add Custom RTMP in PRISM</strong><small>Enter the server URL and key, then choose Screen mode.</small></div>
             </li>
             <li>
               <span>3</span>
-              <div><strong>Start the iPhone broadcast</strong><small>This page detects the stream automatically.</small></div>
+              <div><strong>Paste the iframe URL here</strong><small>Start PRISM and the Cloudflare player will show it.</small></div>
             </li>
           </ol>
 
-          <a class="guide-link" href="https://developers.cloudflare.com/stream/webrtc-beta/" target="_blank" rel="noopener">Cloudflare setup guide <span>↗</span></a>
+          <a class="guide-link" href="https://guide.prismlive.com/mobile/guides/streaming/rtmp/using-custom-rtmp" target="_blank" rel="noopener">PRISM setup guide <span>↗</span></a>
         </section>
 
         <details class="panel-section privacy-note">
           <summary>Privacy and compatibility</summary>
-          <p>The playback address can view your live input, so keep it private. Notifications may appear in the stream. DRM-protected video can be blocked by iOS.</p>
+          <p>Never paste the RTMPS stream key or WHIP publishing URL here. Notifications may appear in the stream. DRM-protected video can be blocked by iOS.</p>
         </details>
       </aside>
     </section>
