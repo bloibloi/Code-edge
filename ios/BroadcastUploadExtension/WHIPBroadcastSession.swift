@@ -159,7 +159,7 @@ final class WHIPBroadcastSession: NSObject {
     }
 
     private func setLocalDescription(_ description: RTCSessionDescription, on peer: RTCPeerConnection) async throws {
-        try await withCheckedThrowingContinuation { continuation in
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
             peer.setLocalDescription(description) { error in
                 if let error { continuation.resume(throwing: error) }
                 else { continuation.resume(returning: ()) }
@@ -168,7 +168,7 @@ final class WHIPBroadcastSession: NSObject {
     }
 
     private func setRemoteDescription(_ description: RTCSessionDescription, on peer: RTCPeerConnection) async throws {
-        try await withCheckedThrowingContinuation { continuation in
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
             peer.setRemoteDescription(description) { error in
                 if let error { continuation.resume(throwing: error) }
                 else { continuation.resume(returning: ()) }
@@ -224,4 +224,3 @@ enum WHIPError: LocalizedError {
         }
     }
 }
-
