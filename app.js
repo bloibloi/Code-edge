@@ -45,7 +45,7 @@ function setStatus(state, text) {
 }
 
 function addLog(message, kind = "info") {
-  elements.logEmpty?.remove();
+  document.querySelector("#logEmpty")?.remove();
 
   const row = document.createElement("div");
   row.className = "log-row";
