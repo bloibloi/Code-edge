@@ -54,3 +54,5 @@ See [worker/README.md](worker/README.md) and [ios/README.md](ios/README.md) for 
 ```bash
 python3 -m http.server 8080
 ```
+
+Cloudflare Workers Builds can deploy directly from the repository root using `npm run check` and `npx wrangler deploy`. The equivalent standalone Worker project remains in `worker/`.
