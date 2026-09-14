@@ -1,45 +1,56 @@
-# iPhone Screen
+# iPhone Remote
 
-A view-only website for displaying an iPhone screen on a Chromebook through Cloudflare Stream.
+A low-latency, view-only iPhone screen viewer designed for a Chromebook. The iPhone publishes its ReplayKit screen capture to Cloudflare Stream over WHIP/WebRTC, and the browser receives it over WHEP/WebRTC.
 
-Live site: https://bloibloi.github.io/Code-edge/
+Live website: https://bloibloi.github.io/Code-edge/
 
-## Recommended architecture
+## User flow
 
+1. Open the website on the Chromebook and select **Generate pairing code**.
+2. Enter the six-digit code in the iPhone Remote app.
+3. Tap **Start Broadcast** and confirm **iPhone Remote** in Apple's broadcast sheet.
+4. The Chromebook connects automatically.
+
+The website is view-only. A Bluetooth mouse or keyboard can be paired directly with the iPhone for control.
+
+## Architecture
+
+```text
+iPhone Remote app + ReplayKit extension
+    └── WHIP/WebRTC publish
+          └── Cloudflare Stream Live Input
+                └── WHEP/WebRTC playback
+                      └── Chromebook website
+
+GitHub Pages ── six-digit code ── Cloudflare pairing Worker
+                                      └── creates short-lived Live Input
 ```
-iPhone screen
-  → PRISM Live Studio Screen mode (RTMPS publisher)
-  → Cloudflare Stream live input (HLS/DASH enabled)
-  → Cloudflare iframe player on this website
+
+The Cloudflare API token and private WHIP publishing URL never enter the GitHub Pages site. The API token is a Worker secret. A publishing URL is released only to the iPhone that claims a valid one-time code.
+
+## Project layout
+
+- Root HTML, CSS, and JavaScript: GitHub Pages viewer
+- `worker/`: pairing API and Cloudflare Live Input creation
+- `ios/`: SwiftUI app and ReplayKit Broadcast Upload Extension
+- `.github/workflows/`: Pages deployment and unsigned iOS compile check
+
+## Build status
+
+The full source is present. Until the Worker URL and Apple signing values are supplied, the website's manual playback URL fallback remains usable and the iOS project is source/CI ready rather than installable.
+
+See [worker/README.md](worker/README.md) and [ios/README.md](ios/README.md) for the two configuration points.
+
+## Privacy
+
+- Apple always requires confirmation before broadcasting.
+- Everything visible on the iPhone, including notifications, may appear in the stream. Enable Focus first.
+- Pairing codes expire after five minutes and can be claimed once.
+- Cloudflare recording is disabled for sessions created by the Worker.
+- DRM-protected content may be blank or blocked. This project does not bypass iOS capture or DRM restrictions.
+
+## Local website preview
+
+```bash
+python3 -m http.server 8080
 ```
-
-This fallback is intended for devices where Larix Screencaster's ReplayKit extension does not work. It is more widely compatible but has several seconds of latency. The site also continues to accept a Cloudflare WHEP `/webRTC/play` URL for existing WebRTC setups.
-
-## Configure Cloudflare and PRISM
-
-1. Create a Cloudflare Stream live input with live HLS/DASH playback enabled.
-2. Copy the live input's RTMPS server URL and stream key.
-3. Install PRISM Live Studio on the iPhone.
-4. Add a Custom RTMP destination in PRISM using the Cloudflare server URL and stream key.
-5. Select PRISM's Screen mode and start the iOS screen broadcast.
-6. Copy the Cloudflare playback URL ending in `/iframe`.
-7. Paste the iframe URL into the live website and select **Save and connect**.
-
-Do not paste an RTMPS stream key or WHIP publishing URL into the website. Those are publishing credentials and must remain secret.
-
-## Controls
-
-The website is view-only. Controls remain on the iPhone or on Bluetooth accessories paired directly with the iPhone.
-
-## Privacy and DRM
-
-- Everything visible on the iPhone, including notifications, may appear in the broadcast.
-- Use Focus or Do Not Disturb before starting.
-- Anyone with an unrestricted playback address may be able to view the stream.
-- DRM-protected video may be blank or blocked. This project does not bypass DRM or iOS capture restrictions.
-
-## Development
-
-This is a dependency-free static site. Preview locally with `python3 -m http.server 8080`.
-
-The GitHub Actions workflow deploys the root directory to GitHub Pages after every push to `main`.
