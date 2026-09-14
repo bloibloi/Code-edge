@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#080b12">
+  <meta name="description" content="View an iPhone WebRTC stream and relay Chromebook controls.">
+  <title>iPhone Remote</title>
+  <link rel="stylesheet" href="./styles.css">
+  <script src="./app.js" defer></script>
+</head>
+<body>
+  <div class="ambient ambient-one"></div>
+  <div class="ambient ambient-two"></div>
+
+  <main class="app-shell">
+    <header class="topbar">
+      <a class="brand" href="./" aria-label="iPhone Remote home">
+        <span class="brand-mark" aria-hidden="true">
+          <svg viewBox="0 0 24 24"><rect x="7" y="2" width="10" height="20" rx="2.5"/><path d="M10 5h4M11 19h2"/></svg>
+        </span>
+        <span>iPhone Remote</span>
+      </a>
+
+      <div class="status-pill" id="connectionStatus" data-state="idle" role="status">
+        <span class="status-dot"></span>
+        <span id="connectionStatusText">Not connected</span>
+      </div>
+    </header>
+
+    <section class="workspace" aria-label="Remote control workspace">
+      <div class="viewer-column">
+        <div class="viewer-toolbar">
+          <div>
+            <p class="eyebrow">LIVE VIEW</p>
+            <h1>Your iPhone, on Chromebook.</h1>
+          </div>
+          <div class="toolbar-actions">
+            <button class="icon-button" id="muteButton" type="button" aria-label="Mute remote audio" aria-pressed="false">
+              <svg class="volume-on" viewBox="0 0 24 24"><path d="M5 9v6h4l5 4V5L9 9H5zM17 9a4 4 0 0 1 0 6M19 6a8 8 0 0 1 0 12"/></svg>
+              <svg class="volume-off" viewBox="0 0 24 24"><path d="M5 9v6h4l5 4V5L9 9H5zM18 9l4 4m0-4-4 4"/></svg>
+            </button>
+            <button class="icon-button" id="fullscreenButton" type="button" aria-label="Enter fullscreen">
+              <svg viewBox="0 0 24 24"><path d="M8 3H3v5M16 3h5v5M8 21H3v-5M16 21h5v-5"/></svg>
+            </button>
+          </div>
+        </div>
+
+        <div class="device-stage" id="deviceStage">
+          <div class="phone-frame" id="controlSurface" tabindex="0" aria-label="iPhone stream control surface">
+            <div class="phone-island" aria-hidden="true"></div>
+            <video id="remoteVideo" autoplay playsinline></video>
+            <div class="empty-state" id="emptyState">
+              <div class="signal-rings" aria-hidden="true">
+                <svg viewBox="0 0 64 64"><rect x="20" y="8" width="24" height="48" rx="7"/><path d="M28 13h8M29 50h6"/><path class="signal" d="M10 23a14 14 0 0 0 0 18M5 17a23 23 0 0 0 0 30M54 23a14 14 0 0 1 0 18M59 17a23 23 0 0 1 0 30"/></svg>
+              </div>
+              <strong>Ready for your iPhone</strong>
+              <span>Create an offer to begin pairing</span>
+            </div>
+            <div class="control-badge" id="controlBadge">
+              <span></span> Controls active
+            </div>
+          </div>
+        </div>
+
+        <div class="quick-controls">
+          <button class="primary-button" id="controlButton" type="button" disabled>
+            <svg viewBox="0 0 24 24"><path d="m6 3 12 9-6 1.5L15 20l-3 1-3-6-3 4V3z"/></svg>
+            <span>Enable control</span>
+          </button>
+          <p id="controlHint">Pair a device to enable mouse and keyboard controls.</p>
+        </div>
+      </div>
+
+      <aside class="side-panel">
+        <section class="panel-section">
+          <div class="section-heading">
+            <div>
+              <p class="eyebrow">CONNECTION</p>
+              <h2>Pair device</h2>
+            </div>
+            <span class="step-chip" id="stepChip">Step 1 of 2</span>
+          </div>
+
+          <p class="section-copy">Create an offer, send it to your iPhone bridge, then paste its answer below.</p>
+
+          <button class="primary-button full-width" id="createOfferButton" type="button">
+            <svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>
+            Create offer
+          </button>
+
+          <div class="field-group">
+            <div class="field-label">
+              <label for="localSdp">Local SDP offer</label>
+              <button class="text-button" id="copyOfferButton" type="button" disabled>Copy</button>
+            </div>
+            <textarea id="localSdp" rows="4" readonly placeholder="Your connection offer will appear here"></textarea>
+          </div>
+
+          <div class="field-group">
+            <div class="field-label">
+              <label for="remoteSdp">Remote SDP answer</label>
+              <button class="text-button" id="pasteAnswerButton" type="button">Paste</button>
+            </div>
+            <textarea id="remoteSdp" rows="4" spellcheck="false" placeholder="Paste the answer from your iPhone bridge"></textarea>
+          </div>
+
+          <button class="secondary-button full-width" id="applyAnswerButton" type="button" disabled>Apply answer</button>
+
+          <button class="danger-button full-width hidden" id="disconnectButton" type="button">Disconnect</button>
+        </section>
+
+        <section class="panel-section log-section">
+          <div class="section-heading">
+            <div>
+              <p class="eyebrow">ACTIVITY</p>
+              <h2>Event log</h2>
+            </div>
+            <button class="text-button" id="clearLogButton" type="button">Clear</button>
+          </div>
+          <div class="event-log" id="eventLog" aria-live="polite">
+            <div class="log-empty" id="logEmpty">Connection and control events will appear here.</div>
+          </div>
+        </section>
+
+        <details class="panel-section safety-note">
+          <summary>What this website can control</summary>
+          <p>This page relays inputs to a compatible iPhone bridge. iOS does not let a normal website remotely control the whole phone, and protected video may not appear in screen capture.</p>
+        </details>
+      </aside>
+    </section>
+  </main>
+
+  <div class="toast" id="toast" role="status"></div>
+</body>
+</html>
