@@ -29,7 +29,7 @@ targets:
       path: RemoteApp/Info.plist
       properties:
         CFBundleDisplayName: iPhone Remote
-        PAIRING_API_URL: https://YOUR-WORKER.workers.dev
+        PAIRING_API_URL: https://iphone-remote-pairing.liamlitchfeild.workers.dev
         UILaunchScreen: {}
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
