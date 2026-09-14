@@ -1,73 +1,45 @@
 # iPhone Screen
 
-A view-only, ultra-low-latency website for displaying an iPhone's full screen on a Chromebook.
+A view-only website for displaying an iPhone screen on a Chromebook through Cloudflare Stream.
 
 Live site: https://bloibloi.github.io/Code-edge/
 
-## Architecture
+## Recommended architecture
 
 ```
 iPhone screen
-  → Larix Screencaster (WHIP publisher)
-  → Cloudflare Stream Live WebRTC
-  → This website (WHEP viewer)
+  → PRISM Live Studio Screen mode (RTMPS publisher)
+  → Cloudflare Stream live input (HLS/DASH enabled)
+  → Cloudflare iframe player on this website
 ```
 
-The site intentionally does not capture Chromebook mouse or keyboard input. Controls remain on the iPhone or on accessories paired directly with the iPhone.
+This fallback is intended for devices where Larix Screencaster's ReplayKit extension does not work. It is more widely compatible but has several seconds of latency. The site also continues to accept a Cloudflare WHEP `/webRTC/play` URL for existing WebRTC setups.
 
-## Requirements
+## Configure Cloudflare and PRISM
 
-- An iPhone with [Larix Screencaster](https://apps.apple.com/) installed
-- A Cloudflare account with Stream enabled
-- One Cloudflare Stream live input
-- The WHIP publish URL from that input
-- The WHEP playback URL from that input
+1. Create a Cloudflare Stream live input with live HLS/DASH playback enabled.
+2. Copy the live input's RTMPS server URL and stream key.
+3. Install PRISM Live Studio on the iPhone.
+4. Add a Custom RTMP destination in PRISM using the Cloudflare server URL and stream key.
+5. Select PRISM's Screen mode and start the iOS screen broadcast.
+6. Copy the Cloudflare playback URL ending in `/iframe`.
+7. Paste the iframe URL into the live website and select **Save and connect**.
 
-Cloudflare's current WebRTC documentation and account requirements are here:
+Do not paste an RTMPS stream key or WHIP publishing URL into the website. Those are publishing credentials and must remain secret.
 
-https://developers.cloudflare.com/stream/webrtc-beta/
+## Controls
 
-## One-time Cloudflare setup
-
-1. Sign in to the Cloudflare dashboard.
-2. Open **Stream → Live inputs**.
-3. Create a live input.
-4. Under **Broadcast**, copy the WebRTC/WHIP publish URL.
-5. Under **Playback**, copy the WebRTC/WHEP playback URL.
-6. Treat the WHIP publish URL as a secret. Anyone who has it may be able to broadcast to the input.
-
-## Configure the iPhone
-
-1. Install and open Larix Screencaster.
-2. Add a new connection.
-3. Select **WebRTC WHIP**.
-4. Paste the Cloudflare WHIP publish URL.
-5. Save the connection.
-6. Start the screen broadcast from Larix when ready.
-
-## Configure the website
-
-1. Open the live site on the Chromebook.
-2. Paste the Cloudflare **WHEP playback URL**.
-3. Select **Save and connect**.
-4. The URL is stored only in that browser's local storage.
-5. The player checks every five seconds when the iPhone is not broadcasting and connects automatically when the broadcast starts.
-
-Cloudflare documents sub-second WebRTC playback latency. Actual performance depends on the iPhone and Chromebook networks.
+The website is view-only. Controls remain on the iPhone or on Bluetooth accessories paired directly with the iPhone.
 
 ## Privacy and DRM
 
 - Everything visible on the iPhone, including notifications, may appear in the broadcast.
 - Use Focus or Do Not Disturb before starting.
-- The WHEP playback URL can allow viewing of the stream unless signed playback restrictions are configured.
+- Anyone with an unrestricted playback address may be able to view the stream.
 - DRM-protected video may be blank or blocked. This project does not bypass DRM or iOS capture restrictions.
 
 ## Development
 
-This is a dependency-free static site. Preview locally with:
+This is a dependency-free static site. Preview locally with `python3 -m http.server 8080`.
 
-```sh
-python3 -m http.server 8080
-```
-
-The included GitHub Actions workflow deploys the root directory to GitHub Pages after every push to `main`.
+The GitHub Actions workflow deploys the root directory to GitHub Pages after every push to `main`.
