@@ -1,0 +1,73 @@
+name: iPhoneRemote
+options:
+  bundleIdPrefix: com.bloibloi
+  deploymentTarget:
+    iOS: "16.0"
+  xcodeVersion: "16.0"
+  groupSortPosition: top
+
+packages:
+  WebRTC:
+    url: https://github.com/stasel/WebRTC.git
+    exactVersion: 153.0.0
+
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+    DEVELOPMENT_TEAM: ""
+    CODE_SIGN_STYLE: Automatic
+    IPHONEOS_DEPLOYMENT_TARGET: "16.0"
+
+targets:
+  iPhoneRemote:
+    type: application
+    platform: iOS
+    sources:
+      - path: RemoteApp
+      - path: Shared
+    info:
+      path: RemoteApp/Info.plist
+      properties:
+        CFBundleDisplayName: iPhone Remote
+        PAIRING_API_URL: https://YOUR-WORKER.workers.dev
+        UILaunchScreen: {}
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+        UIApplicationSceneManifest:
+          UIApplicationSupportsMultipleScenes: false
+    entitlements:
+      path: RemoteApp/iPhoneRemote.entitlements
+    dependencies:
+      - target: BroadcastUploadExtension
+        embed: true
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.bloibloi.iphoneremote
+        PRODUCT_NAME: iPhoneRemote
+        TARGETED_DEVICE_FAMILY: "1,2"
+    scheme:
+      testTargets: []
+
+  BroadcastUploadExtension:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: BroadcastUploadExtension
+      - path: Shared
+    info:
+      path: BroadcastUploadExtension/Info.plist
+      properties:
+        CFBundleDisplayName: iPhone Remote Broadcast
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.broadcast-services-upload
+          NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).SampleHandler
+    entitlements:
+      path: BroadcastUploadExtension/BroadcastUploadExtension.entitlements
+    dependencies:
+      - package: WebRTC
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.bloibloi.iphoneremote.broadcast
+        PRODUCT_NAME: BroadcastUploadExtension
+        TARGETED_DEVICE_FAMILY: "1,2"
+        APPLICATION_EXTENSION_API_ONLY: YES
