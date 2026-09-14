@@ -1,0 +1,12 @@
+{
+  "name": "iphone-remote",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "check": "npm --prefix worker ci && npm --prefix worker run check",
+    "deploy": "wrangler deploy"
+  },
+  "devDependencies": {
+    "wrangler": "^4.131.2"
+  }
+}
