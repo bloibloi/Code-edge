@@ -1,69 +1,73 @@
-# iPhone Remote
+# iPhone Screen
 
-A static GitHub Pages interface for viewing an iPhone WebRTC stream and sending normalized Chromebook mouse, touch, wheel, and keyboard events over a WebRTC data channel.
+A view-only, ultra-low-latency website for displaying an iPhone's full screen on a Chromebook.
 
-## What this repository provides
+Live site: https://bloibloi.github.io/Code-edge/
 
-- Responsive remote-viewer interface
-- WebRTC video/audio receiver
-- Reliable ordered `control` data channel
-- Pointer, click, wheel, and keyboard capture
-- Live connection status and event log
-- Manual copy/paste WebRTC signaling with no signaling server
-- GitHub Pages deployment workflow
+## Architecture
 
-## Important iPhone limitation
+```
+iPhone screen
+  → Larix Screencaster (WHIP publisher)
+  → Cloudflare Stream Live WebRTC
+  → This website (WHEP viewer)
+```
 
-A normal website cannot capture or remotely control the entire iPhone operating system. The phone side still needs a compatible companion app/bridge that:
+The site intentionally does not capture Chromebook mouse or keyboard input. Controls remain on the iPhone or on accessories paired directly with the iPhone.
 
-1. captures the screen with Apple's ReplayKit,
-2. publishes the capture as a WebRTC video track,
-3. accepts the `control` data channel protocol, and
-4. performs only actions iOS permits.
+## Requirements
 
-Protected/DRM video may appear blank in captured output. The browser cannot override that protection.
+- An iPhone with [Larix Screencaster](https://apps.apple.com/) installed
+- A Cloudflare account with Stream enabled
+- One Cloudflare Stream live input
+- The WHIP publish URL from that input
+- The WHEP playback URL from that input
 
-## Local preview
+Cloudflare's current WebRTC documentation and account requirements are here:
 
-Serve the repository from a local web server (secure context is required for production WebRTC):
+https://developers.cloudflare.com/stream/webrtc-beta/
+
+## One-time Cloudflare setup
+
+1. Sign in to the Cloudflare dashboard.
+2. Open **Stream → Live inputs**.
+3. Create a live input.
+4. Under **Broadcast**, copy the WebRTC/WHIP publish URL.
+5. Under **Playback**, copy the WebRTC/WHEP playback URL.
+6. Treat the WHIP publish URL as a secret. Anyone who has it may be able to broadcast to the input.
+
+## Configure the iPhone
+
+1. Install and open Larix Screencaster.
+2. Add a new connection.
+3. Select **WebRTC WHIP**.
+4. Paste the Cloudflare WHIP publish URL.
+5. Save the connection.
+6. Start the screen broadcast from Larix when ready.
+
+## Configure the website
+
+1. Open the live site on the Chromebook.
+2. Paste the Cloudflare **WHEP playback URL**.
+3. Select **Save and connect**.
+4. The URL is stored only in that browser's local storage.
+5. The player checks every five seconds when the iPhone is not broadcasting and connects automatically when the broadcast starts.
+
+Cloudflare documents sub-second WebRTC playback latency. Actual performance depends on the iPhone and Chromebook networks.
+
+## Privacy and DRM
+
+- Everything visible on the iPhone, including notifications, may appear in the broadcast.
+- Use Focus or Do Not Disturb before starting.
+- The WHEP playback URL can allow viewing of the stream unless signed playback restrictions are configured.
+- DRM-protected video may be blank or blocked. This project does not bypass DRM or iOS capture restrictions.
+
+## Development
+
+This is a dependency-free static site. Preview locally with:
 
 ```sh
 python3 -m http.server 8080
 ```
 
-Open `http://localhost:8080`.
-
-## Manual pairing flow
-
-1. Open this site on the Chromebook.
-2. Select **Create offer**.
-3. Copy the Local SDP into the iPhone bridge and apply it there.
-4. Copy the bridge's answer SDP into Remote SDP.
-5. Select **Apply answer**.
-6. Select **Enable control**, then click inside the stream to capture keyboard input.
-
-For trickle-free manual signaling, the site waits for ICE gathering to finish before presenting the offer.
-
-## Control message protocol
-
-Every data-channel message is JSON:
-
-```json
-{
-  "v": 1,
-  "type": "pointermove",
-  "ts": 1730000000000,
-  "payload": {
-    "x": 0.42,
-    "y": 0.67,
-    "buttons": 1,
-    "pointerType": "mouse"
-  }
-}
-```
-
-Coordinates are normalized from 0 to 1 relative to the displayed video. Supported types are `pointermove`, `pointerdown`, `pointerup`, `click`, `wheel`, `keydown`, and `keyup`.
-
-## Deploy
-
-The included GitHub Actions workflow deploys the root directory to GitHub Pages after each push to `main`. In the repository settings, set **Pages → Source** to **GitHub Actions** if it is not selected automatically.
+The included GitHub Actions workflow deploys the root directory to GitHub Pages after every push to `main`.
