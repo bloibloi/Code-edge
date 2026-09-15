@@ -8,7 +8,7 @@ export interface Env {
 }
 
 type StoredSession = {
-  kind?: "iphone" | "desktop";
+  kind?: "iphone" | "iphone-host" | "desktop";
   secret: string;
   expiresAt: number;
   state: "reserved" | "waiting" | "claimed";
@@ -32,6 +32,7 @@ type LiveInputResponse = {
 };
 
 const SESSION_TTL_MS = 5 * 60 * 1000;
+const IPHONE_SESSION_TTL_MS = 15 * 60 * 1000;
 
 export class PairingSession extends DurableObject<Env> {
   async fetch(request: Request): Promise<Response> {
@@ -90,6 +91,60 @@ export class PairingSession extends DurableObject<Env> {
         playbackURL: current.state === "claimed" ? current.whepPlaybackURL : undefined,
         expiresAt: new Date(current.expiresAt).toISOString()
       });
+    }
+
+    if (url.pathname === "/iphone/reserve" && request.method === "POST") {
+      if (!expired) return json({ error: "Code already in use" }, 409);
+      await this.ctx.storage.put<StoredSession>("session", {
+        kind: "iphone-host",
+        secret: body.secret,
+        expiresAt: Number(body.expiresAt),
+        state: "reserved",
+        passwordSalt: body.passwordSalt,
+        passwordHash: body.passwordHash,
+        failedAttempts: 0
+      });
+      return json({ ok: true });
+    }
+
+    if (url.pathname === "/iphone/configure" && request.method === "POST") {
+      if (expired || current.kind !== "iphone-host" || current.secret !== body.secret || current.state !== "reserved") {
+        return json({ error: "iPhone session reservation expired." }, 409);
+      }
+      current.whipPublishURL = body.whipPublishURL;
+      current.whepPlaybackURL = body.whepPlaybackURL;
+      current.state = "waiting";
+      await this.ctx.storage.put("session", current);
+      return json({ ok: true });
+    }
+
+    if (url.pathname === "/iphone/join" && request.method === "POST") {
+      const genericError = "The code or password is incorrect, expired, or already used.";
+      if (expired || current.kind !== "iphone-host" || current.state !== "waiting" || !current.whepPlaybackURL || (current.failedAttempts || 0) >= 8) {
+        return json({ error: genericError }, 404);
+      }
+      const candidateHash = await hashPassword(body.password || "", current.passwordSalt || "");
+      if (!secureEqual(candidateHash, current.passwordHash || "")) {
+        current.failedAttempts = (current.failedAttempts || 0) + 1;
+        await this.ctx.storage.put("session", current);
+        return json({ error: genericError }, 404);
+      }
+      current.viewerSecret = body.viewerSecret;
+      current.state = "claimed";
+      await this.ctx.storage.put("session", current);
+      return json({ playbackURL: current.whepPlaybackURL, expiresAt: new Date(current.expiresAt).toISOString() });
+    }
+
+    if (url.pathname === "/iphone/status" && request.method === "POST") {
+      if (expired || current.kind !== "iphone-host" || current.secret !== body.secret) {
+        return json({ error: "iPhone stream session expired." }, 404);
+      }
+      return json({ joined: current.state === "claimed", expiresAt: new Date(current.expiresAt).toISOString() });
+    }
+
+    if (url.pathname === "/iphone/release" && request.method === "POST") {
+      if (current?.kind === "iphone-host" && current.secret === body.secret) await this.ctx.storage.delete("session");
+      return json({ ok: true });
     }
 
     if (url.pathname === "/desktop/reserve" && request.method === "POST") {
@@ -171,6 +226,14 @@ export default {
         response = await joinPairing(request, env);
       } else if (url.pathname === "/v1/pair/status" && request.method === "GET") {
         response = await pairingStatus(url, env);
+      } else if (url.pathname === "/v1/iphone/create" && request.method === "POST") {
+        response = await createIPhoneSession(request, env);
+      } else if (url.pathname === "/v1/iphone/join" && request.method === "POST") {
+        response = await joinIPhoneSession(request, env);
+      } else if (url.pathname === "/v1/iphone/status" && request.method === "GET") {
+        response = await iPhoneStatus(url, env);
+      } else if (url.pathname === "/v1/iphone/release" && request.method === "POST") {
+        response = await releaseIPhoneSession(request, env);
       } else if (url.pathname === "/v1/desktop/create" && request.method === "POST") {
         response = await createDesktopSession(request, env);
       } else if (url.pathname === "/v1/desktop/offer" && request.method === "POST") {
@@ -265,6 +328,89 @@ async function pairingStatus(url: URL, env: Env): Promise<Response> {
   return env.PAIRING_SESSION.getByName(code).fetch("https://session/status", {
     method: "POST",
     body: JSON.stringify({ secret })
+  });
+}
+
+async function createIPhoneSession(request: Request, env: Env): Promise<Response> {
+  const body = await request.json<{ password?: string }>();
+  const password = body.password || "";
+  if (password.length < 8 || password.length > 128) {
+    return json({ error: "Use a password between 8 and 128 characters." }, 400);
+  }
+  const secret = randomToken();
+  const passwordSalt = randomToken();
+  const passwordHash = await hashPassword(password, passwordSalt);
+  const expiresAt = Date.now() + IPHONE_SESSION_TTL_MS;
+  let code = "";
+  let stub: DurableObjectStub<PairingSession> | undefined;
+
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    code = randomCode();
+    stub = env.PAIRING_SESSION.getByName(code);
+    const reserved = await stub.fetch("https://session/iphone/reserve", {
+      method: "POST",
+      body: JSON.stringify({ secret, expiresAt, passwordSalt, passwordHash })
+    });
+    if (reserved.ok) break;
+    stub = undefined;
+  }
+  if (!stub) return json({ error: "Could not allocate an iPhone join code. Try again." }, 503);
+
+  try {
+    const liveInput = await createCloudflareLiveInput(env, code);
+    const configured = await stub.fetch("https://session/iphone/configure", {
+      method: "POST",
+      body: JSON.stringify({ secret, ...liveInput })
+    });
+    if (!configured.ok) throw new Error("iPhone session reservation expired during setup");
+    return json({
+      code,
+      publisherToken: `${code}.${secret}`,
+      whipPublishURL: liveInput.whipPublishURL,
+      expiresAt: new Date(expiresAt).toISOString()
+    });
+  } catch (error) {
+    await stub.fetch("https://session/iphone/release", {
+      method: "POST",
+      body: JSON.stringify({ secret })
+    });
+    throw error;
+  }
+}
+
+async function joinIPhoneSession(request: Request, env: Env): Promise<Response> {
+  const body = await request.json<{ code?: string; password?: string }>();
+  const code = (body.code || "").replace(/\D/g, "");
+  if (!/^\d{6}$/.test(code)) return json({ error: "Enter the six-digit iPhone code." }, 400);
+  if (!body.password || body.password.length < 8 || body.password.length > 128) {
+    return json({ error: "Enter the iPhone session password." }, 400);
+  }
+  const viewerSecret = randomToken();
+  const response = await env.PAIRING_SESSION.getByName(code).fetch("https://session/iphone/join", {
+    method: "POST",
+    body: JSON.stringify({ viewerSecret, password: body.password })
+  });
+  const payload = await response.json<Record<string, unknown>>();
+  if (!response.ok) return json(payload, response.status);
+  return json({ ...payload, viewerToken: `${code}.${viewerSecret}` });
+}
+
+async function iPhoneStatus(url: URL, env: Env): Promise<Response> {
+  const token = parseToken(url.searchParams.get("token"));
+  if (!token) return json({ error: "Invalid iPhone session token." }, 400);
+  return env.PAIRING_SESSION.getByName(token.code).fetch("https://session/iphone/status", {
+    method: "POST",
+    body: JSON.stringify({ secret: token.secret })
+  });
+}
+
+async function releaseIPhoneSession(request: Request, env: Env): Promise<Response> {
+  const body = await request.json<{ token?: string }>();
+  const token = parseToken(body.token);
+  if (!token) return json({ ok: true });
+  return env.PAIRING_SESSION.getByName(token.code).fetch("https://session/iphone/release", {
+    method: "POST",
+    body: JSON.stringify({ secret: token.secret })
   });
 }
 
