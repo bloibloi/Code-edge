@@ -212,12 +212,17 @@
         hlsPlayer.loadSource(hlsManifestUrl);
         hlsPlayer.attachMedia(el.plexPlayer);
         await ready;
+      } else if (playback.mode === "hls" && el.plexPlayer.canPlayType("application/vnd.apple.mpegurl")) {
+        el.plexPlayer.src = playback.url;
+        el.plexPlayer.load();
+      } else if (playback.mode === "hls") {
+        throw new Error("This browser cannot play Plex HLS video. Open Code-edge in current Chrome or Safari.");
       } else {
         el.plexPlayer.src = playback.url;
+        el.plexPlayer.load();
       }
       el.plexPlaybackNote.textContent = playback.note;
       el.plexPlayerWrap.classList.remove("hidden");
-      if (playback.mode !== "hls") el.plexPlayer.load();
       el.plexPlayer.muted = true;
       el.plexPlaybackNote.textContent = `${playback.note} Starting playback muted…`;
       el.plexPlayerWrap.scrollIntoView({ behavior: "smooth", block: "nearest" });

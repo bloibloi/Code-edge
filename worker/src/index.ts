@@ -798,7 +798,7 @@ async function plexHlsStart(request: Request, env: Env, ratingKey: string): Prom
   const params = new URLSearchParams({
     path: `/library/metadata/${ratingKey}`,
     mediaIndex: "0", partIndex: "0", protocol: "hls", fastSeek: "1", hasMDE: "1",
-    directPlay: "0", directStream: "1", directStreamAudio: "1", container: "mpegts",
+    directPlay: "0", directStream: "0", directStreamAudio: "0", container: "mpegts",
     videoCodec: "h264", audioCodec: "aac", maxVideoBitrate: "1000", videoQuality: "60",
     videoResolution: "1280x720", subtitleSize: "100", audioBoost: "100", location: "wan",
     "X-Plex-Client-Profile-Extra": "add-transcode-target(type=videoProfile&context=streaming&protocol=hls&container=mpegts&videoCodec=h264&audioCodec=aac)",
