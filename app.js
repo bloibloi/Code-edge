@@ -85,10 +85,10 @@ let desktopViewerPeer = null;
 let desktopCapture = null;
 let desktopHostToken = "";
 let desktopViewerToken = "";
-let desktopAnswerTimer = null;
 let desktopConnectTimer = null;
 let desktopSessionCode = "";
 let desktopSessionPassword = "";
+let desktopPublishSessionUrl = "";
 let iphonePublisherToken = "";
 let iphonePublishUrl = "";
 let iphoneSessionCode = "";
@@ -330,12 +330,12 @@ async function startDesktopShare() {
     return;
   }
   const password = elements.desktopSharePassword.value;
-  if (password.length < 8) {
-    showToast("Use a password with at least 8 characters");
+  if (password.length < 10) {
+    showToast("Use a password with at least 10 characters");
     elements.desktopSharePassword.focus();
     return;
   }
-  await stopDesktopHost(false);
+  await stopDesktopHost(true);
   desktopSessionPassword = password;
   elements.desktopSharePassword.disabled = true;
   elements.generateDesktopPassword.disabled = true;
@@ -353,17 +353,17 @@ async function startDesktopShare() {
     elements.stopDesktopButton.classList.remove("hidden");
     if (activeMode === "stream-desktop") setStatus("connecting", "Creating code…");
 
-    const session = await apiRequest("/v1/desktop/create", {
+    const session = await apiRequest("/v1/iphone/create", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ password })
     });
-    desktopHostToken = session.hostToken;
+    desktopHostToken = session.publisherToken;
     desktopSessionCode = session.code;
     elements.desktopShareDigits.textContent = `${session.code.slice(0, 3)} ${session.code.slice(3)}`;
     elements.desktopShareCode.classList.remove("hidden");
     elements.copyDesktopAccess.classList.remove("hidden");
-    elements.desktopShareState.textContent = "Waiting for a viewer";
+    elements.desktopShareState.textContent = "Connecting secure relay…";
 
     const pc = new RTCPeerConnection(RTC_CONFIGURATION);
     desktopHostPeer = pc;
@@ -383,25 +383,30 @@ async function startDesktopShare() {
       if (pc.connectionState === "connected") {
         clearTimeout(desktopConnectTimer);
         desktopConnectTimer = null;
-        elements.desktopShareState.textContent = "Viewer connected";
-        if (activeMode === "stream-desktop") setStatus("live", "Sharing desktop");
+        elements.desktopShareState.textContent = "Live · waiting for viewers";
+        if (activeMode === "stream-desktop") setStatus("live", "Desktop live");
       } else if (["failed", "disconnected"].includes(pc.connectionState)) {
-        elements.desktopShareState.textContent = "Viewer disconnected";
+        elements.desktopShareState.textContent = "Relay connection lost";
         if (activeMode === "stream-desktop") setStatus("error", "Connection lost");
       }
     };
     const offer = await pc.createOffer();
     await pc.setLocalDescription(offer);
     await waitForIceGathering(pc, 5000);
-    await apiRequest("/v1/desktop/offer", {
+    const publishResponse = await fetch(session.whipPublishURL, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ token: desktopHostToken, sdp: JSON.stringify(pc.localDescription) })
+      headers: { "Content-Type": "application/sdp" },
+      body: pc.localDescription.sdp
     });
-    if (activeMode === "stream-desktop") setStatus("waiting", "Waiting for viewer");
-    pollDesktopAnswer();
+    if (!publishResponse.ok) throw new Error(`Desktop relay returned ${publishResponse.status}`);
+    const publishAnswer = await publishResponse.text();
+    const publishLocation = publishResponse.headers.get("Location");
+    desktopPublishSessionUrl = publishLocation ? new URL(publishLocation, session.whipPublishURL).toString() : "";
+    await pc.setRemoteDescription({ type: "answer", sdp: publishAnswer });
+    elements.desktopShareState.textContent = "Live · up to five viewers can join";
+    if (activeMode === "stream-desktop") setStatus("live", "Desktop live");
   } catch (error) {
-    await stopDesktopHost(false);
+    await stopDesktopHost(true);
     if (error?.name !== "NotAllowedError") showToast(error.message || "Could not start desktop sharing");
     if (activeMode === "stream-desktop") setStatus("error", error?.name === "NotAllowedError" ? "Sharing cancelled" : "Could not share");
   } finally {
@@ -410,30 +415,13 @@ async function startDesktopShare() {
   }
 }
 
-async function pollDesktopAnswer() {
-  clearTimeout(desktopAnswerTimer);
-  if (!desktopHostToken || !desktopHostPeer || desktopHostPeer.remoteDescription) return;
-  try {
-    const data = await apiRequest(`/v1/desktop/status?token=${encodeURIComponent(desktopHostToken)}`);
-    if (data.answer) {
-      await desktopHostPeer.setRemoteDescription(JSON.parse(data.answer));
-      elements.desktopShareState.textContent = "Connecting viewer…";
-      return;
-    }
-  } catch (error) {
-    elements.desktopShareState.textContent = error.message || "Session expired";
-    return;
-  }
-  desktopAnswerTimer = setTimeout(pollDesktopAnswer, 1000);
-}
-
 async function stopDesktopHost(notifyServer = true) {
-  clearTimeout(desktopAnswerTimer);
-  desktopAnswerTimer = null;
   clearTimeout(desktopConnectTimer);
   desktopConnectTimer = null;
   const token = desktopHostToken;
+  const publishSession = desktopPublishSessionUrl;
   desktopHostToken = "";
+  desktopPublishSessionUrl = "";
   desktopSessionCode = "";
   desktopSessionPassword = "";
   elements.desktopSharePassword.disabled = false;
@@ -451,7 +439,8 @@ async function stopDesktopHost(notifyServer = true) {
   elements.stopDesktopButton.classList.add("hidden");
   if (activeMode === "stream-desktop") setStatus("idle", "Ready to share");
   if (notifyServer && token) {
-    fetch(`${PAIRING_API}/v1/desktop/release`, {
+    if (publishSession) fetch(publishSession, { method: "DELETE", keepalive: true }).catch(() => {});
+    fetch(`${PAIRING_API}/v1/iphone/release`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ token }),
@@ -468,7 +457,7 @@ async function joinDesktopShare() {
     return;
   }
   const password = elements.desktopJoinPassword.value;
-  if (password.length < 8) {
+  if (password.length < 10) {
     showToast("Enter the session password");
     elements.desktopJoinPassword.focus();
     return;
@@ -479,7 +468,7 @@ async function joinDesktopShare() {
   elements.desktopJoinCopy.textContent = "Finding the shared desktop…";
   if (activeMode === "watch-desktop") setStatus("connecting", "Connecting…");
   try {
-    const session = await apiRequest("/v1/desktop/join", {
+    const session = await apiRequest("/v1/iphone/join", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ code, password })
@@ -508,22 +497,25 @@ async function joinDesktopShare() {
         if (activeMode === "watch-desktop") setStatus("error", "Connection ended");
       }
     };
-    await pc.setRemoteDescription(JSON.parse(session.offer));
-    const answer = await pc.createAnswer();
-    await pc.setLocalDescription(answer);
+    pc.addTransceiver("video", { direction: "recvonly" });
+    pc.addTransceiver("audio", { direction: "recvonly" });
+    const offer = await pc.createOffer();
+    await pc.setLocalDescription(offer);
     await waitForIceGathering(pc, 5000);
-    await apiRequest("/v1/desktop/answer", {
+    const playback = await apiRequest("/v1/iphone/play", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ token: desktopViewerToken, sdp: JSON.stringify(pc.localDescription) })
+      body: JSON.stringify({ token: desktopViewerToken, sdp: pc.localDescription.sdp })
     });
-    elements.desktopJoinCopy.textContent = "Connecting directly to the desktop…";
+    if (!playback.answer) throw new Error("The desktop relay returned no video answer.");
+    await pc.setRemoteDescription({ type: "answer", sdp: playback.answer });
+    elements.desktopJoinCopy.textContent = "Connecting through the secure relay…";
     elements.leaveDesktopButton.classList.remove("hidden");
     clearTimeout(desktopConnectTimer);
     desktopConnectTimer = setTimeout(() => {
       if (pc === desktopViewerPeer && pc.connectionState !== "connected") {
-        elements.desktopJoinCopy.textContent = "The devices could not establish a direct network path. Try placing both devices on the same Wi-Fi.";
-        if (activeMode === "watch-desktop") setStatus("error", "Direct connection blocked");
+        elements.desktopJoinCopy.textContent = "The secure relay did not connect. Stop sharing and create a new desktop code.";
+        if (activeMode === "watch-desktop") setStatus("error", "Relay connection failed");
         pc.close();
       }
     }, DESKTOP_CONNECT_TIMEOUT);
