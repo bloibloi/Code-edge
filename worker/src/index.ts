@@ -343,7 +343,7 @@ export default {
       } else if (url.pathname === "/health") {
         response = json({
           ok: true,
-          version: "plex-hls-playback-4",
+          version: "plex-mkv-relay-profile-5",
           streamConfigured: Boolean(env.CLOUDFLARE_ACCOUNT_ID && env.CLOUDFLARE_API_TOKEN),
           pairingStorageConfigured: Boolean(env.PAIRING_SESSION),
           plexStorageConfigured: Boolean(env.PLEX_SESSION)
@@ -799,9 +799,10 @@ async function plexHlsStart(request: Request, env: Env, ratingKey: string): Prom
   const params = new URLSearchParams({
     path: `/library/metadata/${ratingKey}`,
     mediaIndex: "0", partIndex: "0", protocol: "hls", fastSeek: "1", hasMDE: "1",
-    directPlay: "0", directStream: "0", directStreamAudio: "0", container: "mpegts",
-    videoCodec: "h264", audioCodec: "aac", maxVideoBitrate: "12000", videoQuality: "100",
-    videoResolution: "1920x1080", subtitleSize: "100", audioBoost: "100", location: "wan",
+    directPlay: "0", directStream: "1", directStreamAudio: "1", container: "mpegts",
+    videoCodec: "h264", audioCodec: "aac", maxVideoBitrate: "1000", videoQuality: "60",
+    videoResolution: "1280x720", subtitleSize: "100", audioBoost: "100", location: "wan",
+    "X-Plex-Client-Profile-Extra": "add-transcode-target(type=videoProfile&context=streaming&protocol=hls&container=mpegts&videoCodec=h264&audioCodec=aac)",
     session: `${session}-${ratingKey}`, "X-Plex-Client-Identifier": PLEX_CLIENT_ID
   });
   return proxyPlexHlsPath(request, auth.state, `/video/:/transcode/universal/start.m3u8?${params}`);
@@ -837,6 +838,8 @@ async function proxyPlexHlsPath(request: Request, state: PlexState, path: string
 function rewritePlexManifest(manifest: string, basePath: string, workerOrigin: string, session: string): string {
   const proxy = (value: string) => {
     const parsed = new URL(value, `https://plex.invalid${basePath}`);
+    parsed.searchParams.delete("X-Plex-Token");
+    parsed.searchParams.delete("X-Plex-Client-Identifier");
     const path = `${parsed.pathname}${parsed.search}`;
     if (!path.startsWith("/video/:/transcode/universal/")) return value;
     return `${workerOrigin}/v1/plex/hls/proxy?session=${encodeURIComponent(session)}&path=${encodeURIComponent(path)}`;
