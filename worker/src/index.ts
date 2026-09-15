@@ -8,7 +8,7 @@ export interface Env {
   PLEX_TOKEN: string;
   PLEX_SITE_PASSWORD: string;
   ALLOWED_ORIGIN: string;
-  HISTORY_RATE_LIMITER: RateLimit;
+  HISTORY_RATE_LIMITER?: RateLimit;
 }
 
 type PlexServer = { id: string; name: string; uris: string[]; uri?: string };
@@ -364,7 +364,8 @@ export default {
           streamConfigured: Boolean(env.CLOUDFLARE_ACCOUNT_ID && env.CLOUDFLARE_API_TOKEN),
           pairingStorageConfigured: Boolean(env.PAIRING_SESSION),
           plexStorageConfigured: Boolean(env.PLEX_SESSION),
-          plexSecretsConfigured: Boolean(env.PLEX_TOKEN && env.PLEX_SITE_PASSWORD)
+          plexSecretsConfigured: Boolean(env.PLEX_TOKEN && env.PLEX_SITE_PASSWORD),
+          historyRateLimitConfigured: Boolean(env.HISTORY_RATE_LIMITER)
         });
       } else {
         response = json({ error: "Not found" }, 404);
@@ -388,7 +389,9 @@ export default {
 
 async function fixedHistoryProxy(request: Request, env: Env): Promise<Response> {
   const clientKey = request.headers.get("CF-Connecting-IP") || "unknown";
-  const rateLimit = await env.HISTORY_RATE_LIMITER.limit({ key: clientKey });
+  const rateLimit = env.HISTORY_RATE_LIMITER
+    ? await env.HISTORY_RATE_LIMITER.limit({ key: clientKey })
+    : { success: true };
   if (!rateLimit.success) {
     return new Response("Too many requests. Try again shortly.", {
       status: 429,
