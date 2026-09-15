@@ -45,7 +45,7 @@ See [worker/README.md](worker/README.md) and [ios/README.md](ios/README.md) for 
 
 - Apple always requires confirmation before broadcasting.
 - Everything visible on the iPhone, including notifications, may appear in the stream. Enable Focus first.
-- iPhone sessions expire after fifteen minutes and can be claimed by one viewer only.
+- iPhone sessions expire after fifteen minutes and admit up to five password-authorized viewers.
 - Passwords are salted and hashed; eight incorrect attempts lock the session.
 - Private playback requests are authorized and proxied by the Worker, so the Cloudflare playback URL is not exposed to the viewer.
 - Cloudflare recording is disabled for sessions created by the Worker.
