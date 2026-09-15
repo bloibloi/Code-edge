@@ -40,9 +40,13 @@ const elements = {
   desktopShareCode: document.querySelector("#desktopShareCode"),
   desktopShareDigits: document.querySelector("#desktopShareDigits"),
   desktopShareState: document.querySelector("#desktopShareState"),
+  desktopSharePassword: document.querySelector("#desktopSharePassword"),
+  generateDesktopPassword: document.querySelector("#generateDesktopPassword"),
+  copyDesktopAccess: document.querySelector("#copyDesktopAccess"),
   startDesktopButton: document.querySelector("#startDesktopButton"),
   stopDesktopButton: document.querySelector("#stopDesktopButton"),
   desktopJoinCode: document.querySelector("#desktopJoinCode"),
+  desktopJoinPassword: document.querySelector("#desktopJoinPassword"),
   desktopJoinCopy: document.querySelector("#desktopJoinCopy"),
   joinDesktopButton: document.querySelector("#joinDesktopButton"),
   leaveDesktopButton: document.querySelector("#leaveDesktopButton"),
@@ -73,6 +77,14 @@ let desktopCapture = null;
 let desktopHostToken = "";
 let desktopViewerToken = "";
 let desktopAnswerTimer = null;
+let desktopSessionCode = "";
+let desktopSessionPassword = "";
+
+function generateSecurePassword() {
+  const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789!@#$%";
+  const bytes = crypto.getRandomValues(new Uint8Array(20));
+  return [...bytes].map((value) => alphabet[value % alphabet.length]).join("");
+}
 
 function setMode(mode, updateHash = true) {
   if (!elements.modePages.some((page) => page.dataset.page === mode)) mode = "watch-iphone";
@@ -239,7 +251,16 @@ async function startDesktopShare() {
     showToast("Screen sharing is not supported in this browser");
     return;
   }
+  const password = elements.desktopSharePassword.value;
+  if (password.length < 8) {
+    showToast("Use a password with at least 8 characters");
+    elements.desktopSharePassword.focus();
+    return;
+  }
   await stopDesktopHost(false);
+  desktopSessionPassword = password;
+  elements.desktopSharePassword.disabled = true;
+  elements.generateDesktopPassword.disabled = true;
   elements.startDesktopButton.disabled = true;
   elements.startDesktopButton.textContent = "Choose a screen…";
   try {
@@ -254,10 +275,16 @@ async function startDesktopShare() {
     elements.stopDesktopButton.classList.remove("hidden");
     if (activeMode === "stream-desktop") setStatus("connecting", "Creating code…");
 
-    const session = await apiRequest("/v1/desktop/create", { method: "POST" });
+    const session = await apiRequest("/v1/desktop/create", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ password })
+    });
     desktopHostToken = session.hostToken;
+    desktopSessionCode = session.code;
     elements.desktopShareDigits.textContent = `${session.code.slice(0, 3)} ${session.code.slice(3)}`;
     elements.desktopShareCode.classList.remove("hidden");
+    elements.copyDesktopAccess.classList.remove("hidden");
     elements.desktopShareState.textContent = "Waiting for a viewer";
 
     const pc = new RTCPeerConnection();
@@ -325,6 +352,10 @@ async function stopDesktopHost(notifyServer = true) {
   desktopAnswerTimer = null;
   const token = desktopHostToken;
   desktopHostToken = "";
+  desktopSessionCode = "";
+  desktopSessionPassword = "";
+  elements.desktopSharePassword.disabled = false;
+  elements.generateDesktopPassword.disabled = false;
   if (desktopHostPeer) desktopHostPeer.close();
   desktopHostPeer = null;
   const capture = desktopCapture;
@@ -334,6 +365,7 @@ async function stopDesktopHost(notifyServer = true) {
   elements.desktopPreviewEmpty.classList.remove("hidden");
   elements.desktopLiveBadge.classList.remove("visible");
   elements.desktopShareCode.classList.add("hidden");
+  elements.copyDesktopAccess.classList.add("hidden");
   elements.stopDesktopButton.classList.add("hidden");
   if (activeMode === "stream-desktop") setStatus("idle", "Ready to share");
   if (notifyServer && token) {
@@ -353,6 +385,12 @@ async function joinDesktopShare() {
     elements.desktopJoinCode.focus();
     return;
   }
+  const password = elements.desktopJoinPassword.value;
+  if (password.length < 8) {
+    showToast("Enter the session password");
+    elements.desktopJoinPassword.focus();
+    return;
+  }
   leaveDesktopShare();
   elements.joinDesktopButton.disabled = true;
   elements.joinDesktopButton.textContent = "Connecting…";
@@ -362,7 +400,7 @@ async function joinDesktopShare() {
     const session = await apiRequest("/v1/desktop/join", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ code })
+      body: JSON.stringify({ code, password })
     });
     desktopViewerToken = session.viewerToken;
     const pc = new RTCPeerConnection();
@@ -581,6 +619,19 @@ document.querySelectorAll("[data-mode-link]").forEach((link) => link.addEventLis
 }));
 window.addEventListener("hashchange", () => setMode(location.hash.slice(1), false));
 elements.startDesktopButton.addEventListener("click", startDesktopShare);
+elements.generateDesktopPassword.addEventListener("click", () => {
+  elements.desktopSharePassword.value = generateSecurePassword();
+  showToast("Secure password generated");
+});
+elements.copyDesktopAccess.addEventListener("click", async () => {
+  if (!desktopSessionCode) return;
+  try {
+    await navigator.clipboard.writeText(`Code: ${desktopSessionCode}\nPassword: ${desktopSessionPassword}`);
+    showToast("Code and password copied");
+  } catch {
+    showToast("Copy the code and password manually");
+  }
+});
 elements.stopDesktopButton.addEventListener("click", () => stopDesktopHost());
 elements.joinDesktopButton.addEventListener("click", joinDesktopShare);
 elements.leaveDesktopButton.addEventListener("click", () => leaveDesktopShare());
@@ -589,6 +640,9 @@ elements.desktopJoinCode.addEventListener("input", () => {
   elements.desktopJoinCode.value = digits.length > 3 ? `${digits.slice(0, 3)} ${digits.slice(3)}` : digits;
 });
 elements.desktopJoinCode.addEventListener("keydown", (event) => {
+  if (event.key === "Enter") joinDesktopShare();
+});
+elements.desktopJoinPassword.addEventListener("keydown", (event) => {
   if (event.key === "Enter") joinDesktopShare();
 });
 elements.desktopMuteButton.addEventListener("click", () => {
@@ -686,5 +740,6 @@ if (savedUrl) {
   elements.playbackUrl.value = savedUrl;
   elements.forgetButton.classList.remove("hidden");
 }
+elements.desktopSharePassword.value = generateSecurePassword();
 setMode(location.hash.slice(1) || "watch-iphone", false);
 connectPlayback();
