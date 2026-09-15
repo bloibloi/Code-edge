@@ -4,140 +4,118 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="theme-color" content="#080b12">
-  <meta name="description" content="Private iPhone screen viewer for Cloudflare Stream.">
-  <title>iPhone Screen</title>
+  <meta name="description" content="Private, low-latency screen sharing for your desktop and iPhone.">
+  <title>Remote Screen</title>
   <link rel="stylesheet" href="./styles.css">
   <script src="./config.js"></script>
   <script src="./app.js" defer></script>
 </head>
 <body>
-  <div class="glow glow-a"></div>
-  <div class="glow glow-b"></div>
-
+  <div class="glow glow-a"></div><div class="glow glow-b"></div>
   <main class="shell">
     <header class="topbar">
-      <a class="brand" href="./">
-        <span class="brand-icon" aria-hidden="true">
-          <svg viewBox="0 0 24 24"><rect x="7" y="2" width="10" height="20" rx="2.5"/><path d="M10 5h4M11 19h2"/></svg>
-        </span>
-        <span>iPhone Screen</span>
+      <a class="brand" href="#watch-iphone" data-mode-link="watch-iphone">
+        <span class="brand-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="13" rx="2"/><path d="M8 21h8M12 17v4"/></svg></span>
+        <span>Remote Screen</span>
       </a>
-
-      <div class="status" id="status" data-state="idle" role="status">
-        <span class="status-dot"></span>
-        <span id="statusText">Not configured</span>
-      </div>
+      <div class="status" id="status" data-state="idle" role="status"><span class="status-dot"></span><span id="statusText">Ready</span></div>
     </header>
 
-    <section class="workspace">
-      <div class="viewer-column">
-        <div class="viewer-header">
-          <div>
-            <p class="eyebrow">LIVE SCREEN</p>
-            <h1>Your iPhone, right here.</h1>
-          </div>
-          <div class="viewer-actions">
-            <button class="icon-button" id="fitButton" type="button" aria-label="Fill screen" aria-pressed="false" title="Fit or fill">
-              <svg viewBox="0 0 24 24"><path d="M8 3H3v5M16 3h5v5M8 21H3v-5M16 21h5v-5"/></svg>
-            </button>
-            <button class="icon-button" id="muteButton" type="button" aria-label="Unmute stream" aria-pressed="true" title="Mute or unmute">
-              <svg class="sound-on" viewBox="0 0 24 24"><path d="M5 9v6h4l5 4V5L9 9H5zM17 9a4 4 0 0 1 0 6M19 6a8 8 0 0 1 0 12"/></svg>
-              <svg class="sound-off" viewBox="0 0 24 24"><path d="M5 9v6h4l5 4V5L9 9H5zM18 9l4 4m0-4-4 4"/></svg>
-            </button>
-            <button class="icon-button" id="fullscreenButton" type="button" aria-label="Enter fullscreen" title="Fullscreen">
-              <svg viewBox="0 0 24 24"><path d="M8 3H3v5M16 3h5v5M8 21H3v-5M16 21h5v-5"/></svg>
-            </button>
+    <nav class="mode-tabs" aria-label="Screen sharing modes">
+      <button class="mode-tab" type="button" data-mode="stream-desktop"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="13" rx="2"/><path d="M8 21h8M12 17v4M8 10l4-4 4 4M12 6v8"/></svg><span><strong>Stream Desktop</strong><small>Share this screen</small></span></button>
+      <button class="mode-tab" type="button" data-mode="watch-desktop"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="13" rx="2"/><path d="M8 21h8M12 17v4M9 10l2 2 4-5"/></svg><span><strong>Watch Desktop</strong><small>Enter a code</small></span></button>
+      <button class="mode-tab active" type="button" data-mode="watch-iphone"><svg viewBox="0 0 24 24"><rect x="7" y="2" width="10" height="20" rx="2.5"/><path d="M10 5h4M11 19h2"/></svg><span><strong>Watch iPhone</strong><small>Connect the app</small></span></button>
+    </nav>
+
+    <section class="mode-page hidden" id="stream-desktop" data-page="stream-desktop">
+      <div class="desktop-layout">
+        <div class="desktop-main">
+          <div class="viewer-header"><div><p class="eyebrow">STREAM DESKTOP</p><h1>Share your Chromebook.</h1></div></div>
+          <div class="desktop-stage" id="desktopPreviewStage">
+            <video id="desktopPreview" autoplay muted playsinline></video>
+            <div class="desktop-empty" id="desktopPreviewEmpty"><span class="screen-icon">↑</span><strong>Nothing is being shared</strong><small>Chrome will let you choose a tab, window, or your entire screen.</small></div>
+            <div class="live-badge" id="desktopLiveBadge"><span></span> SHARING</div>
           </div>
         </div>
-
-        <div class="stage" id="stage">
-          <div class="phone" id="phone">
-            <div class="island" aria-hidden="true"></div>
-            <video id="screenVideo" autoplay muted playsinline></video>
-            <iframe id="streamFrame" class="hidden" title="iPhone live stream" allow="autoplay; encrypted-media; picture-in-picture" allowfullscreen></iframe>
-
-            <div class="empty-state" id="emptyState">
-              <div class="broadcast-icon" aria-hidden="true">
-                <svg viewBox="0 0 72 72">
-                  <rect x="24" y="9" width="24" height="54" rx="7"/>
-                  <path d="M32 15h8M33 56h6"/>
-                  <path class="waves" d="M15 25a15 15 0 0 0 0 22M8 18a25 25 0 0 0 0 36M57 25a15 15 0 0 1 0 22M64 18a25 25 0 0 1 0 36"/>
-                </svg>
-              </div>
-              <strong id="emptyTitle">Connect your stream</strong>
-              <span id="emptyMessage">Add your Cloudflare playback URL to begin.</span>
-              <button class="small-button" id="emptyAction" type="button">Set up stream</button>
-            </div>
-
-            <div class="live-badge" id="liveBadge"><span></span> LIVE</div>
-          </div>
-        </div>
-
-        <div class="stream-footer">
-          <span id="streamMessage">Waiting for setup</span>
-          <button class="text-button" id="reconnectButton" type="button" disabled>Reconnect</button>
-        </div>
+        <aside class="side-panel">
+          <section class="panel-section">
+            <p class="eyebrow">START A SESSION</p><h2>Share with a code</h2>
+            <p class="section-copy">Choose what to share. We will create a private six-digit code for the viewer.</p>
+            <button class="primary-button" id="startDesktopButton" type="button">Choose screen to share</button>
+            <div class="pairing-code hidden" id="desktopShareCode" aria-live="polite"><span id="desktopShareDigits">000 000</span><small id="desktopShareState">Waiting for a viewer</small></div>
+            <button class="secondary-button hidden" id="stopDesktopButton" type="button">Stop sharing</button>
+          </section>
+          <section class="panel-section instructions">
+            <p class="eyebrow">HOW IT WORKS</p><h2>Direct and low latency</h2>
+            <ol>
+              <li><span>1</span><div><strong>Choose your screen</strong><small>Select a Chrome tab, window, or the entire desktop.</small></div></li>
+              <li><span>2</span><div><strong>Send the six-digit code</strong><small>The viewer opens Watch Desktop and enters it.</small></div></li>
+              <li><span>3</span><div><strong>Keep this page open</strong><small>The video travels browser-to-browser over WebRTC.</small></div></li>
+            </ol>
+          </section>
+        </aside>
       </div>
+    </section>
 
-      <aside class="side-panel">
-        <section class="panel-section">
-          <p class="eyebrow">CONNECT IPHONE</p>
-          <h2>Pair with a code</h2>
-          <p class="section-copy" id="pairingCopy">Generate a private code, enter it in the iPhone Remote app, then start the broadcast.</p>
-
-          <div class="pairing-code hidden" id="pairingCode" aria-live="polite">
-            <span id="pairingDigits">000 000</span>
-            <small id="pairingTimer">Expires in 5:00</small>
-          </div>
-          <button class="primary-button" id="pairButton" type="button">Generate pairing code</button>
-          <button class="secondary-button hidden" id="cancelPairButton" type="button">Cancel pairing</button>
-        </section>
-
-        <section class="panel-section instructions">
-          <div class="section-title-row">
-            <div>
-              <p class="eyebrow">HOW IT WORKS</p>
-              <h2>Three quick steps</h2>
+    <section class="mode-page hidden" id="watch-desktop" data-page="watch-desktop">
+      <div class="desktop-layout">
+        <div class="desktop-main">
+          <div class="viewer-header">
+            <div><p class="eyebrow">WATCH DESKTOP</p><h1>Desktop, right here.</h1></div>
+            <div class="viewer-actions">
+              <button class="icon-button" id="desktopMuteButton" type="button" aria-label="Unmute desktop" aria-pressed="true" title="Mute or unmute"><svg class="sound-on" viewBox="0 0 24 24"><path d="M5 9v6h4l5 4V5L9 9H5zM17 9a4 4 0 0 1 0 6M19 6a8 8 0 0 1 0 12"/></svg><svg class="sound-off" viewBox="0 0 24 24"><path d="M5 9v6h4l5 4V5L9 9H5zM18 9l4 4m0-4-4 4"/></svg></button>
+              <button class="icon-button" id="desktopFullscreenButton" type="button" aria-label="Enter fullscreen" title="Fullscreen"><svg viewBox="0 0 24 24"><path d="M8 3H3v5M16 3h5v5M8 21H3v-5M16 21h5v-5"/></svg></button>
             </div>
-            <span class="latency-chip fast">WebRTC</span>
           </div>
-
-          <ol>
-            <li>
-              <span>1</span>
-              <div><strong>Generate a code here</strong><small>It expires automatically after five minutes.</small></div>
-            </li>
-            <li>
-              <span>2</span>
-              <div><strong>Enter it on the iPhone</strong><small>The private publishing address is sent securely to the app.</small></div>
-            </li>
-            <li>
-              <span>3</span>
-              <div><strong>Tap Start Broadcast</strong><small>This page connects automatically when the iPhone is ready.</small></div>
-            </li>
-          </ol>
-        </section>
-
-        <details class="panel-section manual-source">
-          <summary>Use a playback URL instead</summary>
-          <p class="section-copy">For testing, paste a Cloudflare WHEP or iframe playback URL. It is stored only in this browser.</p>
-          <label for="playbackUrl">Cloudflare playback URL</label>
-          <div class="url-row">
-            <input id="playbackUrl" type="url" inputmode="url" autocomplete="off" spellcheck="false" placeholder="https://customer-…/…/webRTC/play">
-            <button class="paste-button" id="pasteButton" type="button">Paste</button>
+          <div class="desktop-stage" id="desktopWatchStage">
+            <video id="desktopWatchVideo" autoplay muted playsinline></video>
+            <div class="desktop-empty" id="desktopWatchEmpty"><span class="screen-icon">▶</span><strong>Enter a desktop code</strong><small>The shared desktop will appear here automatically.</small></div>
+            <div class="live-badge" id="desktopWatchBadge"><span></span> LIVE</div>
           </div>
-          <button class="primary-button" id="saveButton" type="button">Save and connect</button>
-          <button class="secondary-button hidden" id="forgetButton" type="button">Forget stream</button>
-        </details>
+        </div>
+        <aside class="side-panel">
+          <section class="panel-section">
+            <p class="eyebrow">CONNECT TO DESKTOP</p><h2>Enter the code</h2>
+            <p class="section-copy" id="desktopJoinCopy">Type the six-digit code displayed on the sharing computer.</p>
+            <label for="desktopJoinCode">Desktop code</label>
+            <input class="code-input" id="desktopJoinCode" type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="7" placeholder="000 000">
+            <button class="primary-button" id="joinDesktopButton" type="button">Watch desktop</button>
+            <button class="secondary-button hidden" id="leaveDesktopButton" type="button">Disconnect</button>
+          </section>
+          <details class="panel-section privacy-note" open><summary>About controls</summary><p>This connection carries live video and audio. Browser security prevents this page from controlling the other computer's operating system. A companion extension or installed helper is required for desktop controls.</p></details>
+        </aside>
+      </div>
+    </section>
 
-        <details class="panel-section privacy-note">
-          <summary>Privacy and compatibility</summary>
-          <p>Apple always shows a confirmation before screen sharing. Notifications may appear in the stream, so enable Focus first. DRM-protected video can be blocked by iOS.</p>
-        </details>
-      </aside>
+    <section class="mode-page active" id="watch-iphone" data-page="watch-iphone">
+      <div class="workspace">
+        <div class="viewer-column">
+          <div class="viewer-header">
+            <div><p class="eyebrow">WATCH IPHONE</p><h1>Your iPhone, right here.</h1></div>
+            <div class="viewer-actions">
+              <button class="icon-button" id="fitButton" type="button" aria-label="Fill screen" aria-pressed="false" title="Fit or fill"><svg viewBox="0 0 24 24"><path d="M8 3H3v5M16 3h5v5M8 21H3v-5M16 21h5v-5"/></svg></button>
+              <button class="icon-button" id="muteButton" type="button" aria-label="Unmute stream" aria-pressed="true" title="Mute or unmute"><svg class="sound-on" viewBox="0 0 24 24"><path d="M5 9v6h4l5 4V5L9 9H5zM17 9a4 4 0 0 1 0 6M19 6a8 8 0 0 1 0 12"/></svg><svg class="sound-off" viewBox="0 0 24 24"><path d="M5 9v6h4l5 4V5L9 9H5zM18 9l4 4m0-4-4 4"/></svg></button>
+              <button class="icon-button" id="fullscreenButton" type="button" aria-label="Enter fullscreen" title="Fullscreen"><svg viewBox="0 0 24 24"><path d="M8 3H3v5M16 3h5v5M8 21H3v-5M16 21h5v-5"/></svg></button>
+            </div>
+          </div>
+          <div class="stage" id="stage">
+            <div class="phone" id="phone">
+              <div class="island" aria-hidden="true"></div><video id="screenVideo" autoplay muted playsinline></video><iframe id="streamFrame" class="hidden" title="iPhone live stream" allow="autoplay; encrypted-media; picture-in-picture" allowfullscreen></iframe>
+              <div class="empty-state" id="emptyState"><div class="broadcast-icon" aria-hidden="true"><svg viewBox="0 0 72 72"><rect x="24" y="9" width="24" height="54" rx="7"/><path d="M32 15h8M33 56h6"/><path class="waves" d="M15 25a15 15 0 0 0 0 22M8 18a25 25 0 0 0 0 36M57 25a15 15 0 0 1 0 22M64 18a25 25 0 0 1 0 36"/></svg></div><strong id="emptyTitle">Connect your stream</strong><span id="emptyMessage">Pair the iPhone Remote app to begin.</span><button class="small-button" id="emptyAction" type="button">Set up stream</button></div>
+              <div class="live-badge" id="liveBadge"><span></span> LIVE</div>
+            </div>
+          </div>
+          <div class="stream-footer"><span id="streamMessage">Waiting for setup</span><button class="text-button" id="reconnectButton" type="button" disabled>Reconnect</button></div>
+        </div>
+        <aside class="side-panel">
+          <section class="panel-section"><p class="eyebrow">CONNECT IPHONE</p><h2>Pair with a code</h2><p class="section-copy" id="pairingCopy">Generate a private code, enter it in the iPhone Remote app, then start the broadcast.</p><div class="pairing-code hidden" id="pairingCode" aria-live="polite"><span id="pairingDigits">000 000</span><small id="pairingTimer">Expires in 5:00</small></div><button class="primary-button" id="pairButton" type="button">Generate pairing code</button><button class="secondary-button hidden" id="cancelPairButton" type="button">Cancel pairing</button></section>
+          <section class="panel-section instructions"><div class="section-title-row"><div><p class="eyebrow">HOW IT WORKS</p><h2>Three quick steps</h2></div><span class="latency-chip fast">WebRTC</span></div><ol><li><span>1</span><div><strong>Generate a code here</strong><small>It expires automatically after five minutes.</small></div></li><li><span>2</span><div><strong>Enter it on the iPhone</strong><small>The private publishing address is sent securely to the app.</small></div></li><li><span>3</span><div><strong>Tap Start Broadcast</strong><small>This page connects automatically when the iPhone is ready.</small></div></li></ol></section>
+          <details class="panel-section manual-source"><summary>Use a playback URL instead</summary><p class="section-copy">For testing, paste a Cloudflare WHEP or iframe playback URL. It is stored only in this browser.</p><label for="playbackUrl">Cloudflare playback URL</label><div class="url-row"><input id="playbackUrl" type="url" inputmode="url" autocomplete="off" spellcheck="false" placeholder="https://customer-…/…/webRTC/play"><button class="paste-button" id="pasteButton" type="button">Paste</button></div><button class="primary-button" id="saveButton" type="button">Save and connect</button><button class="secondary-button hidden" id="forgetButton" type="button">Forget stream</button></details>
+          <details class="panel-section privacy-note"><summary>Privacy and compatibility</summary><p>Apple always shows a confirmation before screen sharing. Notifications may appear in the stream, so enable Focus first. DRM-protected video can be blocked by iOS.</p></details>
+        </aside>
+      </div>
     </section>
   </main>
-
   <div class="toast" id="toast" role="status"></div>
 </body>
 </html>
