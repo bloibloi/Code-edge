@@ -8,12 +8,17 @@
   <meta name="referrer" content="no-referrer">
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; connect-src 'self' https://iphone-remote-pairing.liamlitchfeild.workers.dev https://*.cloudflarestream.com; frame-src https://*.cloudflarestream.com; media-src 'self' blob:; img-src 'self' data:; style-src 'self'; script-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'">
   <title>Remote Screen</title>
-  <link rel="stylesheet" href="./styles.css?v=20260915-halloween">
+  <link rel="stylesheet" href="./styles.css?v=20260915-halloween-2">
   <script src="./config.js?v=20260915-3"></script>
   <script src="./app.js?v=20260915-3" defer></script>
+  <script src="./halloween.js?v=20260915-1" defer></script>
 </head>
 <body>
   <div class="glow glow-a"></div><div class="glow glow-b"></div>
+  <div class="halloween-decor" aria-hidden="true">
+    <img class="decor-pumpkin" src="./assets/halloween-pumpkin.svg" alt="">
+    <img class="decor-ghost" src="./assets/halloween-ghost.svg" alt="">
+  </div>
   <main class="shell">
     <header class="topbar">
       <a class="brand" href="#watch-iphone" data-mode-link="watch-iphone">
@@ -151,6 +156,10 @@
         </aside>
       </div>
     </section>
+    <aside class="halloween-fact-card" aria-labelledby="halloweenFactTitle">
+      <img src="./assets/halloween-pumpkin.svg" alt="" aria-hidden="true">
+      <div><p class="eyebrow">HAUNTED KNOWLEDGE</p><h2 id="halloweenFactTitle">Halloween fact</h2><p id="halloweenFact">Jack-o’-lanterns were once commonly carved from turnips.</p></div>
+    </aside>
   </main>
   <div class="toast" id="toast" role="status"></div>
 </body>
