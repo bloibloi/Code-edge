@@ -46,7 +46,6 @@ enum BroadcastError: LocalizedError {
     case missingConfiguration
 
     var errorDescription: String? {
-        "Open iPhone Remote and connect it to the Chromebook before broadcasting."
+        "Open iPhone Remote and create a private stream before broadcasting."
     }
 }
-
