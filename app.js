@@ -4,6 +4,11 @@ const STORAGE_KEY = "iphone-screen-playback-url";
 const LEGACY_STORAGE_KEY = "iphone-screen-whep-url";
 const RETRY_DELAY = 5000;
 const PAIRING_API = String(window.IPHONE_REMOTE_API || "").replace(/\/$/, "");
+const RTC_CONFIGURATION = {
+  iceServers: [{ urls: "stun:stun.cloudflare.com:3478" }],
+  iceCandidatePoolSize: 4
+};
+const DESKTOP_CONNECT_TIMEOUT = 15000;
 
 const elements = {
   status: document.querySelector("#status"),
@@ -81,6 +86,7 @@ let desktopCapture = null;
 let desktopHostToken = "";
 let desktopViewerToken = "";
 let desktopAnswerTimer = null;
+let desktopConnectTimer = null;
 let desktopSessionCode = "";
 let desktopSessionPassword = "";
 let iphonePublisherToken = "";
@@ -359,7 +365,7 @@ async function startDesktopShare() {
     elements.copyDesktopAccess.classList.remove("hidden");
     elements.desktopShareState.textContent = "Waiting for a viewer";
 
-    const pc = new RTCPeerConnection();
+    const pc = new RTCPeerConnection(RTC_CONFIGURATION);
     desktopHostPeer = pc;
     capture.getTracks().forEach((track) => {
       const sender = pc.addTrack(track, capture);
@@ -375,6 +381,8 @@ async function startDesktopShare() {
     pc.onconnectionstatechange = () => {
       if (pc !== desktopHostPeer) return;
       if (pc.connectionState === "connected") {
+        clearTimeout(desktopConnectTimer);
+        desktopConnectTimer = null;
         elements.desktopShareState.textContent = "Viewer connected";
         if (activeMode === "stream-desktop") setStatus("live", "Sharing desktop");
       } else if (["failed", "disconnected"].includes(pc.connectionState)) {
@@ -422,6 +430,8 @@ async function pollDesktopAnswer() {
 async function stopDesktopHost(notifyServer = true) {
   clearTimeout(desktopAnswerTimer);
   desktopAnswerTimer = null;
+  clearTimeout(desktopConnectTimer);
+  desktopConnectTimer = null;
   const token = desktopHostToken;
   desktopHostToken = "";
   desktopSessionCode = "";
@@ -475,7 +485,7 @@ async function joinDesktopShare() {
       body: JSON.stringify({ code, password })
     });
     desktopViewerToken = session.viewerToken;
-    const pc = new RTCPeerConnection();
+    const pc = new RTCPeerConnection(RTC_CONFIGURATION);
     desktopViewerPeer = pc;
     const incoming = new MediaStream();
     elements.desktopWatchVideo.srcObject = incoming;
@@ -485,6 +495,8 @@ async function joinDesktopShare() {
     pc.onconnectionstatechange = () => {
       if (pc !== desktopViewerPeer) return;
       if (pc.connectionState === "connected") {
+        clearTimeout(desktopConnectTimer);
+        desktopConnectTimer = null;
         elements.desktopWatchEmpty.classList.add("hidden");
         elements.desktopWatchBadge.classList.add("visible");
         elements.desktopJoinCopy.textContent = "Connected to the shared desktop.";
@@ -507,6 +519,14 @@ async function joinDesktopShare() {
     });
     elements.desktopJoinCopy.textContent = "Connecting directly to the desktop…";
     elements.leaveDesktopButton.classList.remove("hidden");
+    clearTimeout(desktopConnectTimer);
+    desktopConnectTimer = setTimeout(() => {
+      if (pc === desktopViewerPeer && pc.connectionState !== "connected") {
+        elements.desktopJoinCopy.textContent = "The devices could not establish a direct network path. Try placing both devices on the same Wi-Fi.";
+        if (activeMode === "watch-desktop") setStatus("error", "Direct connection blocked");
+        pc.close();
+      }
+    }, DESKTOP_CONNECT_TIMEOUT);
   } catch (error) {
     leaveDesktopShare(false);
     elements.desktopJoinCopy.textContent = error.message || "Could not connect to that desktop.";
@@ -518,6 +538,8 @@ async function joinDesktopShare() {
 }
 
 function leaveDesktopShare(resetCopy = true) {
+  clearTimeout(desktopConnectTimer);
+  desktopConnectTimer = null;
   desktopViewerToken = "";
   if (desktopViewerPeer) desktopViewerPeer.close();
   desktopViewerPeer = null;
