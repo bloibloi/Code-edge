@@ -132,7 +132,15 @@ export class PairingSession extends DurableObject<Env> {
       current.viewerSecret = body.viewerSecret;
       current.state = "claimed";
       await this.ctx.storage.put("session", current);
-      return json({ playbackURL: current.whepPlaybackURL, expiresAt: new Date(current.expiresAt).toISOString() });
+      return json({ expiresAt: new Date(current.expiresAt).toISOString() });
+    }
+
+    if (url.pathname === "/iphone/play" && request.method === "POST") {
+      if (expired || current.kind !== "iphone-host" || current.state !== "claimed" ||
+          current.viewerSecret !== body.viewerSecret || !current.whepPlaybackURL) {
+        return json({ error: "This private viewing session is not authorized." }, 403);
+      }
+      return json({ playbackURL: current.whepPlaybackURL });
     }
 
     if (url.pathname === "/iphone/status" && request.method === "POST") {
@@ -230,6 +238,8 @@ export default {
         response = await createIPhoneSession(request, env);
       } else if (url.pathname === "/v1/iphone/join" && request.method === "POST") {
         response = await joinIPhoneSession(request, env);
+      } else if (url.pathname === "/v1/iphone/play" && request.method === "POST") {
+        response = await playIPhoneSession(request, env);
       } else if (url.pathname === "/v1/iphone/status" && request.method === "GET") {
         response = await iPhoneStatus(url, env);
       } else if (url.pathname === "/v1/iphone/release" && request.method === "POST") {
@@ -334,8 +344,8 @@ async function pairingStatus(url: URL, env: Env): Promise<Response> {
 async function createIPhoneSession(request: Request, env: Env): Promise<Response> {
   const body = await request.json<{ password?: string }>();
   const password = body.password || "";
-  if (password.length < 8 || password.length > 128) {
-    return json({ error: "Use a password between 8 and 128 characters." }, 400);
+  if (password.length < 10 || password.length > 128) {
+    return json({ error: "Use a password between 10 and 128 characters." }, 400);
   }
   const secret = randomToken();
   const passwordSalt = randomToken();
@@ -382,7 +392,7 @@ async function joinIPhoneSession(request: Request, env: Env): Promise<Response> 
   const body = await request.json<{ code?: string; password?: string }>();
   const code = (body.code || "").replace(/\D/g, "");
   if (!/^\d{6}$/.test(code)) return json({ error: "Enter the six-digit iPhone code." }, 400);
-  if (!body.password || body.password.length < 8 || body.password.length > 128) {
+  if (!body.password || body.password.length < 10 || body.password.length > 128) {
     return json({ error: "Enter the iPhone session password." }, 400);
   }
   const viewerSecret = randomToken();
@@ -393,6 +403,33 @@ async function joinIPhoneSession(request: Request, env: Env): Promise<Response> 
   const payload = await response.json<Record<string, unknown>>();
   if (!response.ok) return json(payload, response.status);
   return json({ ...payload, viewerToken: `${code}.${viewerSecret}` });
+}
+
+async function playIPhoneSession(request: Request, env: Env): Promise<Response> {
+  const body = await request.json<{ token?: string; sdp?: string }>();
+  const token = parseToken(body.token);
+  if (!token || !body.sdp || body.sdp.length > 100_000) {
+    return json({ error: "Invalid private playback request." }, 400);
+  }
+
+  const authorized = await env.PAIRING_SESSION.getByName(token.code).fetch("https://session/iphone/play", {
+    method: "POST",
+    body: JSON.stringify({ viewerSecret: token.secret })
+  });
+  const authorization = await authorized.json<{ playbackURL?: string; error?: string }>();
+  if (!authorized.ok || !authorization.playbackURL) {
+    return json({ error: authorization.error || "This private viewing session is not authorized." }, 403);
+  }
+
+  const playback = await fetch(authorization.playbackURL, {
+    method: "POST",
+    headers: { "Content-Type": "application/sdp" },
+    body: body.sdp
+  });
+  if (!playback.ok) {
+    return json({ error: playback.status === 404 ? "The iPhone stream has not started yet." : "The private stream could not be opened." }, 502);
+  }
+  return json({ answer: await playback.text() });
 }
 
 async function iPhoneStatus(url: URL, env: Env): Promise<Response> {
