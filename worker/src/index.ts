@@ -29,6 +29,7 @@ type LiveInputResponse = {
   result?: {
     webRTC?: { url?: string };
     webRTCPlayback?: { url?: string };
+    rtmps?: { url?: string; streamKey?: string };
   };
 };
 
@@ -387,6 +388,8 @@ async function createIPhoneSession(request: Request, env: Env): Promise<Response
       code,
       publisherToken: `${code}.${secret}`,
       whipPublishURL: liveInput.whipPublishURL,
+      rtmpsURL: liveInput.rtmpsURL,
+      rtmpsStreamKey: liveInput.rtmpsStreamKey,
       expiresAt: new Date(expiresAt).toISOString()
     });
   } catch (error) {
@@ -584,12 +587,14 @@ async function createCloudflareLiveInput(env: Env, code: string) {
   const payload = await response.json<LiveInputResponse>();
   const whipPublishURL = payload.result?.webRTC?.url;
   const whepPlaybackURL = payload.result?.webRTCPlayback?.url;
-  if (!response.ok || !payload.success || !whipPublishURL || !whepPlaybackURL) {
+  const rtmpsURL = payload.result?.rtmps?.url;
+  const rtmpsStreamKey = payload.result?.rtmps?.streamKey;
+  if (!response.ok || !payload.success || !whipPublishURL || !whepPlaybackURL || !rtmpsURL || !rtmpsStreamKey) {
     throw new PublicError(
       `Cloudflare Stream rejected the Live Input request: ${payload.errors?.[0]?.message || `HTTP ${response.status}`}`
     );
   }
-  return { whipPublishURL, whepPlaybackURL };
+  return { whipPublishURL, whepPlaybackURL, rtmpsURL, rtmpsStreamKey };
 }
 
 function corsHeaders(request: Request, env: Env): Record<string, string> {
