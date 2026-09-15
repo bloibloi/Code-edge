@@ -44,7 +44,7 @@
             <p class="eyebrow">START A SESSION</p><h2>Share with a code</h2>
             <p class="section-copy">Choose a strong password, then share the code and password only with your intended viewer.</p>
             <label for="desktopSharePassword">Session password</label>
-            <div class="url-row"><input id="desktopSharePassword" type="password" minlength="8" maxlength="128" autocomplete="new-password" placeholder="At least 8 characters"><button class="paste-button" id="generateDesktopPassword" type="button">Generate</button></div>
+            <div class="url-row"><input id="desktopSharePassword" type="password" minlength="10" maxlength="128" autocomplete="new-password" placeholder="At least 10 characters"><button class="paste-button" id="generateDesktopPassword" type="button">Generate</button></div>
             <small class="field-hint">Required. The password is never stored in readable form.</small>
             <button class="primary-button" id="startDesktopButton" type="button">Choose screen to share</button>
             <div class="pairing-code hidden" id="desktopShareCode" aria-live="polite"><span id="desktopShareDigits">000 000</span><small id="desktopShareState">Waiting for a viewer</small></div>
@@ -52,11 +52,11 @@
             <button class="secondary-button hidden" id="stopDesktopButton" type="button">Stop sharing</button>
           </section>
           <section class="panel-section instructions">
-            <p class="eyebrow">HOW IT WORKS</p><h2>Direct and low latency</h2>
+            <p class="eyebrow">HOW IT WORKS</p><h2>Private and low latency</h2>
             <ol>
               <li><span>1</span><div><strong>Choose your screen</strong><small>Select a Chrome tab, window, or the entire desktop.</small></div></li>
               <li><span>2</span><div><strong>Send the six-digit code</strong><small>The viewer opens Watch Desktop and enters it.</small></div></li>
-              <li><span>3</span><div><strong>Keep this page open</strong><small>The video travels browser-to-browser over WebRTC.</small></div></li>
+              <li><span>3</span><div><strong>Keep this page open</strong><small>Encrypted WebRTC video travels through the Cloudflare relay to authorized viewers.</small></div></li>
             </ol>
           </section>
         </aside>
@@ -86,11 +86,11 @@
             <label for="desktopJoinCode">Desktop code</label>
             <input class="code-input" id="desktopJoinCode" type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="7" placeholder="000 000">
             <label class="spaced-label" for="desktopJoinPassword">Session password</label>
-            <input id="desktopJoinPassword" type="password" minlength="8" maxlength="128" autocomplete="current-password" placeholder="Enter the password">
+            <input id="desktopJoinPassword" type="password" minlength="10" maxlength="128" autocomplete="current-password" placeholder="Enter the password">
             <button class="primary-button" id="joinDesktopButton" type="button">Watch desktop</button>
             <button class="secondary-button hidden" id="leaveDesktopButton" type="button">Disconnect</button>
           </section>
-          <details class="panel-section privacy-note" open><summary>Private connection</summary><p>Only one viewer can join. The password is verified securely and the WebRTC video is encrypted directly between the two devices. Browser security prevents this page from controlling the other computer's operating system.</p></details>
+          <details class="panel-section privacy-note" open><summary>Private connection</summary><p>Up to five viewers can join with the correct code and password. The raw playback address stays inside the Worker, and WebRTC encrypts the video in transit through Cloudflare. The devices do not need to share Wi-Fi. Browser security prevents this page from controlling the other computer's operating system.</p></details>
         </aside>
       </div>
     </section>
