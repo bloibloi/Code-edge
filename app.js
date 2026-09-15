@@ -32,6 +32,26 @@ const elements = {
   pairingDigits: document.querySelector("#pairingDigits"),
   pairingTimer: document.querySelector("#pairingTimer"),
   pairingCopy: document.querySelector("#pairingCopy"),
+  modeTabs: [...document.querySelectorAll("[data-mode]")],
+  modePages: [...document.querySelectorAll("[data-page]")],
+  desktopPreview: document.querySelector("#desktopPreview"),
+  desktopPreviewEmpty: document.querySelector("#desktopPreviewEmpty"),
+  desktopLiveBadge: document.querySelector("#desktopLiveBadge"),
+  desktopShareCode: document.querySelector("#desktopShareCode"),
+  desktopShareDigits: document.querySelector("#desktopShareDigits"),
+  desktopShareState: document.querySelector("#desktopShareState"),
+  startDesktopButton: document.querySelector("#startDesktopButton"),
+  stopDesktopButton: document.querySelector("#stopDesktopButton"),
+  desktopJoinCode: document.querySelector("#desktopJoinCode"),
+  desktopJoinCopy: document.querySelector("#desktopJoinCopy"),
+  joinDesktopButton: document.querySelector("#joinDesktopButton"),
+  leaveDesktopButton: document.querySelector("#leaveDesktopButton"),
+  desktopWatchVideo: document.querySelector("#desktopWatchVideo"),
+  desktopWatchEmpty: document.querySelector("#desktopWatchEmpty"),
+  desktopWatchBadge: document.querySelector("#desktopWatchBadge"),
+  desktopWatchStage: document.querySelector("#desktopWatchStage"),
+  desktopMuteButton: document.querySelector("#desktopMuteButton"),
+  desktopFullscreenButton: document.querySelector("#desktopFullscreenButton"),
   toast: document.querySelector("#toast")
 };
 
@@ -46,6 +66,29 @@ let pairingToken = "";
 let pairingExpiresAt = 0;
 let pairingTimer = null;
 let pairingPollTimer = null;
+let activeMode = "watch-iphone";
+let desktopHostPeer = null;
+let desktopViewerPeer = null;
+let desktopCapture = null;
+let desktopHostToken = "";
+let desktopViewerToken = "";
+let desktopAnswerTimer = null;
+
+function setMode(mode, updateHash = true) {
+  if (!elements.modePages.some((page) => page.dataset.page === mode)) mode = "watch-iphone";
+  activeMode = mode;
+  elements.modeTabs.forEach((tab) => tab.classList.toggle("active", tab.dataset.mode === mode));
+  elements.modePages.forEach((page) => {
+    const selected = page.dataset.page === mode;
+    page.classList.toggle("active", selected);
+    page.classList.toggle("hidden", !selected);
+  });
+  if (updateHash && location.hash !== `#${mode}`) history.replaceState(null, "", `#${mode}`);
+  if (mode === "stream-desktop") setStatus(desktopCapture ? "live" : "idle", desktopCapture ? "Sharing desktop" : "Ready to share");
+  else if (mode === "watch-desktop") setStatus(desktopViewerPeer?.connectionState === "connected" ? "live" : "idle", desktopViewerPeer ? "Connecting desktop" : "Enter a code");
+  else if (peer?.connectionState === "connected") setStatus("live", "Live");
+  else setStatus(getSavedUrl() ? "waiting" : "idle", getSavedUrl() ? "Waiting for iPhone" : "Ready");
+}
 
 function setStatus(state, text) {
   elements.status.dataset.state = state;
@@ -181,6 +224,202 @@ function waitForIceGathering(pc, timeoutMs = 3000) {
     }
     pc.addEventListener("icegatheringstatechange", check);
   });
+}
+
+async function apiRequest(path, options = {}) {
+  if (!PAIRING_API) throw new Error("The connection server is not configured.");
+  const response = await fetch(`${PAIRING_API}${path}`, options);
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(data.error || `Connection server returned ${response.status}`);
+  return data;
+}
+
+async function startDesktopShare() {
+  if (!navigator.mediaDevices?.getDisplayMedia) {
+    showToast("Screen sharing is not supported in this browser");
+    return;
+  }
+  await stopDesktopHost(false);
+  elements.startDesktopButton.disabled = true;
+  elements.startDesktopButton.textContent = "Choose a screen…";
+  try {
+    const capture = await navigator.mediaDevices.getDisplayMedia({
+      video: { frameRate: { ideal: 30, max: 30 } },
+      audio: true
+    });
+    desktopCapture = capture;
+    elements.desktopPreview.srcObject = capture;
+    elements.desktopPreviewEmpty.classList.add("hidden");
+    elements.desktopLiveBadge.classList.add("visible");
+    elements.stopDesktopButton.classList.remove("hidden");
+    if (activeMode === "stream-desktop") setStatus("connecting", "Creating code…");
+
+    const session = await apiRequest("/v1/desktop/create", { method: "POST" });
+    desktopHostToken = session.hostToken;
+    elements.desktopShareDigits.textContent = `${session.code.slice(0, 3)} ${session.code.slice(3)}`;
+    elements.desktopShareCode.classList.remove("hidden");
+    elements.desktopShareState.textContent = "Waiting for a viewer";
+
+    const pc = new RTCPeerConnection();
+    desktopHostPeer = pc;
+    capture.getTracks().forEach((track) => {
+      const sender = pc.addTrack(track, capture);
+      if (track.kind === "video") {
+        const parameters = sender.getParameters();
+        if (parameters.encodings?.length) {
+          parameters.encodings[0].maxBitrate = 5_000_000;
+          sender.setParameters(parameters).catch(() => {});
+        }
+      }
+    });
+    capture.getVideoTracks()[0]?.addEventListener("ended", () => stopDesktopHost());
+    pc.onconnectionstatechange = () => {
+      if (pc !== desktopHostPeer) return;
+      if (pc.connectionState === "connected") {
+        elements.desktopShareState.textContent = "Viewer connected";
+        if (activeMode === "stream-desktop") setStatus("live", "Sharing desktop");
+      } else if (["failed", "disconnected"].includes(pc.connectionState)) {
+        elements.desktopShareState.textContent = "Viewer disconnected";
+        if (activeMode === "stream-desktop") setStatus("error", "Connection lost");
+      }
+    };
+    const offer = await pc.createOffer();
+    await pc.setLocalDescription(offer);
+    await waitForIceGathering(pc, 5000);
+    await apiRequest("/v1/desktop/offer", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ token: desktopHostToken, sdp: JSON.stringify(pc.localDescription) })
+    });
+    if (activeMode === "stream-desktop") setStatus("waiting", "Waiting for viewer");
+    pollDesktopAnswer();
+  } catch (error) {
+    await stopDesktopHost(false);
+    if (error?.name !== "NotAllowedError") showToast(error.message || "Could not start desktop sharing");
+    if (activeMode === "stream-desktop") setStatus("error", error?.name === "NotAllowedError" ? "Sharing cancelled" : "Could not share");
+  } finally {
+    elements.startDesktopButton.disabled = false;
+    elements.startDesktopButton.textContent = "Choose screen to share";
+  }
+}
+
+async function pollDesktopAnswer() {
+  clearTimeout(desktopAnswerTimer);
+  if (!desktopHostToken || !desktopHostPeer || desktopHostPeer.remoteDescription) return;
+  try {
+    const data = await apiRequest(`/v1/desktop/status?token=${encodeURIComponent(desktopHostToken)}`);
+    if (data.answer) {
+      await desktopHostPeer.setRemoteDescription(JSON.parse(data.answer));
+      elements.desktopShareState.textContent = "Connecting viewer…";
+      return;
+    }
+  } catch (error) {
+    elements.desktopShareState.textContent = error.message || "Session expired";
+    return;
+  }
+  desktopAnswerTimer = setTimeout(pollDesktopAnswer, 1000);
+}
+
+async function stopDesktopHost(notifyServer = true) {
+  clearTimeout(desktopAnswerTimer);
+  desktopAnswerTimer = null;
+  const token = desktopHostToken;
+  desktopHostToken = "";
+  if (desktopHostPeer) desktopHostPeer.close();
+  desktopHostPeer = null;
+  const capture = desktopCapture;
+  desktopCapture = null;
+  capture?.getTracks().forEach((track) => track.stop());
+  elements.desktopPreview.srcObject = null;
+  elements.desktopPreviewEmpty.classList.remove("hidden");
+  elements.desktopLiveBadge.classList.remove("visible");
+  elements.desktopShareCode.classList.add("hidden");
+  elements.stopDesktopButton.classList.add("hidden");
+  if (activeMode === "stream-desktop") setStatus("idle", "Ready to share");
+  if (notifyServer && token) {
+    fetch(`${PAIRING_API}/v1/desktop/release`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ token }),
+      keepalive: true
+    }).catch(() => {});
+  }
+}
+
+async function joinDesktopShare() {
+  const code = elements.desktopJoinCode.value.replace(/\D/g, "");
+  if (code.length !== 6) {
+    showToast("Enter the six-digit desktop code");
+    elements.desktopJoinCode.focus();
+    return;
+  }
+  leaveDesktopShare();
+  elements.joinDesktopButton.disabled = true;
+  elements.joinDesktopButton.textContent = "Connecting…";
+  elements.desktopJoinCopy.textContent = "Finding the shared desktop…";
+  if (activeMode === "watch-desktop") setStatus("connecting", "Connecting…");
+  try {
+    const session = await apiRequest("/v1/desktop/join", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ code })
+    });
+    desktopViewerToken = session.viewerToken;
+    const pc = new RTCPeerConnection();
+    desktopViewerPeer = pc;
+    const incoming = new MediaStream();
+    elements.desktopWatchVideo.srcObject = incoming;
+    pc.ontrack = (event) => {
+      if (!incoming.getTracks().some((track) => track.id === event.track.id)) incoming.addTrack(event.track);
+    };
+    pc.onconnectionstatechange = () => {
+      if (pc !== desktopViewerPeer) return;
+      if (pc.connectionState === "connected") {
+        elements.desktopWatchEmpty.classList.add("hidden");
+        elements.desktopWatchBadge.classList.add("visible");
+        elements.desktopJoinCopy.textContent = "Connected to the shared desktop.";
+        elements.leaveDesktopButton.classList.remove("hidden");
+        if (activeMode === "watch-desktop") setStatus("live", "Desktop live");
+        elements.desktopWatchVideo.play().catch(() => {});
+      } else if (["failed", "disconnected"].includes(pc.connectionState)) {
+        elements.desktopJoinCopy.textContent = "The desktop connection ended.";
+        if (activeMode === "watch-desktop") setStatus("error", "Connection ended");
+      }
+    };
+    await pc.setRemoteDescription(JSON.parse(session.offer));
+    const answer = await pc.createAnswer();
+    await pc.setLocalDescription(answer);
+    await waitForIceGathering(pc, 5000);
+    await apiRequest("/v1/desktop/answer", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ token: desktopViewerToken, sdp: JSON.stringify(pc.localDescription) })
+    });
+    elements.desktopJoinCopy.textContent = "Connecting directly to the desktop…";
+    elements.leaveDesktopButton.classList.remove("hidden");
+  } catch (error) {
+    leaveDesktopShare(false);
+    elements.desktopJoinCopy.textContent = error.message || "Could not connect to that desktop.";
+    if (activeMode === "watch-desktop") setStatus("error", "Could not connect");
+  } finally {
+    elements.joinDesktopButton.disabled = false;
+    elements.joinDesktopButton.textContent = "Watch desktop";
+  }
+}
+
+function leaveDesktopShare(resetCopy = true) {
+  desktopViewerToken = "";
+  if (desktopViewerPeer) desktopViewerPeer.close();
+  desktopViewerPeer = null;
+  if (elements.desktopWatchVideo.srcObject) {
+    elements.desktopWatchVideo.srcObject.getTracks().forEach((track) => track.stop());
+    elements.desktopWatchVideo.srcObject = null;
+  }
+  elements.desktopWatchEmpty.classList.remove("hidden");
+  elements.desktopWatchBadge.classList.remove("visible");
+  elements.leaveDesktopButton.classList.add("hidden");
+  if (resetCopy) elements.desktopJoinCopy.textContent = "Type the six-digit code displayed on the sharing computer.";
+  if (activeMode === "watch-desktop") setStatus("idle", "Enter a code");
 }
 
 async function closeSession(sendDelete = true) {
@@ -335,6 +574,37 @@ async function saveAndConnect() {
 }
 
 elements.saveButton.addEventListener("click", saveAndConnect);
+elements.modeTabs.forEach((tab) => tab.addEventListener("click", () => setMode(tab.dataset.mode)));
+document.querySelectorAll("[data-mode-link]").forEach((link) => link.addEventListener("click", (event) => {
+  event.preventDefault();
+  setMode(link.dataset.modeLink);
+}));
+window.addEventListener("hashchange", () => setMode(location.hash.slice(1), false));
+elements.startDesktopButton.addEventListener("click", startDesktopShare);
+elements.stopDesktopButton.addEventListener("click", () => stopDesktopHost());
+elements.joinDesktopButton.addEventListener("click", joinDesktopShare);
+elements.leaveDesktopButton.addEventListener("click", () => leaveDesktopShare());
+elements.desktopJoinCode.addEventListener("input", () => {
+  const digits = elements.desktopJoinCode.value.replace(/\D/g, "").slice(0, 6);
+  elements.desktopJoinCode.value = digits.length > 3 ? `${digits.slice(0, 3)} ${digits.slice(3)}` : digits;
+});
+elements.desktopJoinCode.addEventListener("keydown", (event) => {
+  if (event.key === "Enter") joinDesktopShare();
+});
+elements.desktopMuteButton.addEventListener("click", () => {
+  elements.desktopWatchVideo.muted = !elements.desktopWatchVideo.muted;
+  elements.desktopMuteButton.setAttribute("aria-pressed", String(elements.desktopWatchVideo.muted));
+  elements.desktopMuteButton.setAttribute("aria-label", elements.desktopWatchVideo.muted ? "Unmute desktop" : "Mute desktop");
+  if (!elements.desktopWatchVideo.muted) elements.desktopWatchVideo.play().catch(() => {});
+});
+elements.desktopFullscreenButton.addEventListener("click", async () => {
+  try {
+    if (document.fullscreenElement) await document.exitFullscreen();
+    else await elements.desktopWatchStage.requestFullscreen();
+  } catch {
+    showToast("Fullscreen is unavailable");
+  }
+});
 elements.pairButton.addEventListener("click", generatePairingCode);
 elements.cancelPairButton.addEventListener("click", () => stopPairing());
 elements.playbackUrl.addEventListener("keydown", (event) => {
@@ -406,6 +676,8 @@ document.addEventListener("visibilitychange", () => {
 });
 window.addEventListener("beforeunload", () => {
   stoppedByUser = true;
+  stopDesktopHost();
+  leaveDesktopShare(false);
   closeSession();
 });
 
@@ -414,4 +686,5 @@ if (savedUrl) {
   elements.playbackUrl.value = savedUrl;
   elements.forgetButton.classList.remove("hidden");
 }
+setMode(location.hash.slice(1) || "watch-iphone", false);
 connectPlayback();
