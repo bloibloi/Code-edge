@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 180 160" role="img" aria-labelledby="title">
+  <title id="title">Glowing jack-o-lantern</title>
+  <defs>
+    <radialGradient id="glow"><stop stop-color="#ffbf5b"/><stop offset="1" stop-color="#f05b16"/></radialGradient>
+    <linearGradient id="skin" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#ff9638"/><stop offset="1" stop-color="#b93212"/></linearGradient>
+  </defs>
+  <path d="M83 34c-2-15 6-27 19-31 2 12-2 23-11 31" fill="#43632b" stroke="#1e2c16" stroke-width="5" stroke-linecap="round"/>
+  <ellipse cx="90" cy="98" rx="72" ry="57" fill="url(#skin)" stroke="#67200f" stroke-width="6"/>
+  <path d="M58 45c-13 27-13 75 0 105M122 45c13 27 13 75 0 105M90 42c-8 30-8 78 0 112" fill="none" stroke="#9e3515" stroke-width="5" opacity=".75"/>
+  <path d="m47 84 25-11-8 24Zm86 0-25-11 8 24Zm-65 31 17 8 14-10 16 7c-13 19-37 21-47-5Z" fill="url(#glow)" stroke="#5f1a0a" stroke-width="4" stroke-linejoin="round"/>
+</svg>
