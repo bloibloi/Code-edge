@@ -8,7 +8,6 @@ export interface Env {
   PLEX_TOKEN: string;
   PLEX_SITE_PASSWORD: string;
   ALLOWED_ORIGIN: string;
-  HISTORY_RATE_LIMITER?: RateLimit;
 }
 
 type PlexServer = { id: string; name: string; uris: string[]; uri?: string };
@@ -98,6 +97,8 @@ type LiveInputResponse = {
 const SESSION_TTL_MS = 5 * 60 * 1000;
 const IPHONE_SESSION_TTL_MS = 15 * 60 * 1000;
 const MAX_IPHONE_VIEWERS = 5;
+const HISTORY_RATE_LIMIT = 300;
+const HISTORY_RATE_WINDOW_MS = 60 * 1000;
 
 export class PairingSession extends DurableObject<Env> {
   async fetch(request: Request): Promise<Response> {
@@ -105,6 +106,16 @@ export class PairingSession extends DurableObject<Env> {
     const body = request.method === "POST" ? await request.json<Record<string, string>>() : {};
     const current = await this.ctx.storage.get<StoredSession>("session");
     const expired = !current || current.expiresAt <= Date.now();
+
+    if (url.pathname === "/history-limit" && request.method === "POST") {
+      const now = Date.now();
+      const previous = await this.ctx.storage.get<{ count: number; windowStartedAt: number }>("historyRate");
+      const rate = !previous || now - previous.windowStartedAt >= HISTORY_RATE_WINDOW_MS
+        ? { count: 1, windowStartedAt: now }
+        : { count: previous.count + 1, windowStartedAt: previous.windowStartedAt };
+      await this.ctx.storage.put("historyRate", rate);
+      return json({ allowed: rate.count <= HISTORY_RATE_LIMIT });
+    }
 
     if (url.pathname === "/reserve" && request.method === "POST") {
       if (!expired) return json({ error: "Code already in use" }, 409);
@@ -364,8 +375,7 @@ export default {
           streamConfigured: Boolean(env.CLOUDFLARE_ACCOUNT_ID && env.CLOUDFLARE_API_TOKEN),
           pairingStorageConfigured: Boolean(env.PAIRING_SESSION),
           plexStorageConfigured: Boolean(env.PLEX_SESSION),
-          plexSecretsConfigured: Boolean(env.PLEX_TOKEN && env.PLEX_SITE_PASSWORD),
-          historyRateLimitConfigured: Boolean(env.HISTORY_RATE_LIMITER)
+          plexSecretsConfigured: Boolean(env.PLEX_TOKEN && env.PLEX_SITE_PASSWORD)
         });
       } else {
         response = json({ error: "Not found" }, 404);
@@ -389,10 +399,13 @@ export default {
 
 async function fixedHistoryProxy(request: Request, env: Env): Promise<Response> {
   const clientKey = request.headers.get("CF-Connecting-IP") || "unknown";
-  const rateLimit = env.HISTORY_RATE_LIMITER
-    ? await env.HISTORY_RATE_LIMITER.limit({ key: clientKey })
-    : { success: true };
-  if (!rateLimit.success) {
+  const limiter = env.PAIRING_SESSION.getByName(`history-rate:${clientKey}`);
+  const rateLimit = await limiter.fetch("https://session/history-limit", {
+    method: "POST",
+    body: "{}"
+  });
+  const rateState = await rateLimit.json<{ allowed?: boolean }>();
+  if (!rateState.allowed) {
     return new Response("Too many requests. Try again shortly.", {
       status: 429,
       headers: { "Content-Type": "text/plain; charset=utf-8", "Retry-After": "60" }
