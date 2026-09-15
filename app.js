@@ -96,6 +96,9 @@ let iphoneRtmpsStreamKey = "";
 let iphoneSessionCode = "";
 let iphoneSessionPassword = "";
 let iphoneViewerToken = "";
+let livekitURL = "";
+let livekitToken = "";
+let livekitRoomConnection = null;
 
 function generateSecurePassword() {
   const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789!@#$%";
@@ -263,6 +266,8 @@ async function joinIphoneStream() {
     });
     if (!session.viewerToken) throw new Error("The stream server returned invalid access details.");
     iphoneViewerToken = session.viewerToken;
+    livekitURL = session.livekitURL || "";
+    livekitToken = session.livekitToken || "";
     localStorage.removeItem(STORAGE_KEY);
     localStorage.removeItem(LEGACY_STORAGE_KEY);
     elements.playbackUrl.value = "";
@@ -286,6 +291,8 @@ async function leaveIphoneStream() {
   localStorage.removeItem(STORAGE_KEY);
   localStorage.removeItem(LEGACY_STORAGE_KEY);
   iphoneViewerToken = "";
+  livekitURL = "";
+  livekitToken = "";
   elements.playbackUrl.value = "";
   elements.forgetButton.classList.add("hidden");
   elements.leaveIphoneButton.classList.add("hidden");
@@ -323,7 +330,7 @@ async function startDesktopShare() {
     const session = await apiRequest("/v1/iphone/create", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ password })
+      body: JSON.stringify({ password, transport: "whip" })
     });
     desktopHostToken = session.publisherToken;
     desktopSessionCode = session.code;
@@ -514,6 +521,12 @@ async function closeSession(sendDelete = true) {
   const oldSessionUrl = sessionUrl;
   sessionUrl = "";
 
+  if (livekitRoomConnection) {
+    const room = livekitRoomConnection;
+    livekitRoomConnection = null;
+    room.disconnect();
+  }
+
   if (peer) {
     peer.ontrack = null;
     peer.onconnectionstatechange = null;
@@ -574,6 +587,15 @@ async function connectPlayback(isRetry = false) {
   stoppedByUser = false;
   clearTimeout(retryTimer);
   await closeSession();
+  if (privateSession && livekitURL && livekitToken) {
+    try {
+      await connectLiveKitPlayback();
+    } catch (error) {
+      console.warn("LiveKit connection failed:", error);
+      scheduleRetry("Could not reach the private room — retrying automatically");
+    }
+    return;
+  }
   if (mode === "iframe") {
     loadIframe(playbackUrl);
     return;
@@ -650,6 +672,39 @@ async function connectPlayback(isRetry = false) {
     console.warn("Playback connection failed:", error);
     scheduleRetry("No live stream detected — checking every 5 seconds");
   }
+}
+
+async function connectLiveKitPlayback() {
+  if (!window.LivekitClient?.Room) throw new Error("The LiveKit player did not load.");
+  playbackMode = "livekit";
+  const room = new window.LivekitClient.Room({ adaptiveStream: true, dynacast: true });
+  livekitRoomConnection = room;
+
+  const showTrack = (track) => {
+    if (track.kind !== "video") return;
+    track.attach(elements.video);
+    elements.emptyState.classList.add("hidden");
+    elements.liveBadge.classList.add("visible");
+    elements.reconnectButton.disabled = false;
+    elements.forgetButton.classList.remove("hidden");
+    setStatus("live", "Live");
+    elements.streamMessage.textContent = "LiveKit stream connected";
+    elements.video.play().catch(() => {});
+  };
+
+  room.on(window.LivekitClient.RoomEvent.TrackSubscribed, showTrack);
+  room.on(window.LivekitClient.RoomEvent.TrackUnsubscribed, (track) => track.detach(elements.video));
+  room.on(window.LivekitClient.RoomEvent.Disconnected, () => {
+    if (!stoppedByUser && livekitRoomConnection === room) scheduleRetry("Connection interrupted — retrying automatically");
+  });
+
+  setStatus("connecting", "Joining private room…");
+  elements.streamMessage.textContent = "Connecting to LiveKit";
+  setEmpty("Waiting for your iPhone", "Start the StreamChamp screen broadcast. Video will appear automatically.", "Try again");
+  await room.connect(livekitURL, livekitToken, { autoSubscribe: true });
+  if (livekitRoomConnection !== room) return;
+  setStatus("waiting", "Waiting for iPhone");
+  elements.streamMessage.textContent = "Private room connected — waiting for StreamChamp";
 }
 
 function updateMuteButton() {
@@ -813,7 +868,7 @@ elements.fullscreenButton.addEventListener("click", async () => {
   }
 });
 document.addEventListener("visibilitychange", () => {
-  if (!document.hidden && (iphoneViewerToken || getSavedUrl()) && playbackMode === "whep" && peer?.connectionState !== "connected") connectPlayback(true);
+  if (!document.hidden && (iphoneViewerToken || getSavedUrl()) && ["whep", "livekit"].includes(playbackMode) && peer?.connectionState !== "connected") connectPlayback(true);
 });
 window.addEventListener("beforeunload", () => {
   stoppedByUser = true;
