@@ -8,11 +8,15 @@ export interface Env {
 }
 
 type StoredSession = {
+  kind?: "iphone" | "desktop";
   secret: string;
   expiresAt: number;
   state: "reserved" | "waiting" | "claimed";
   whipPublishURL?: string;
   whepPlaybackURL?: string;
+  viewerSecret?: string;
+  offer?: string;
+  answer?: string;
 };
 
 type LiveInputResponse = {
@@ -36,6 +40,7 @@ export class PairingSession extends DurableObject<Env> {
     if (url.pathname === "/reserve" && request.method === "POST") {
       if (!expired) return json({ error: "Code already in use" }, 409);
       const session: StoredSession = {
+        kind: "iphone",
         secret: body.secret,
         expiresAt: Number(body.expiresAt),
         state: "reserved"
@@ -45,7 +50,7 @@ export class PairingSession extends DurableObject<Env> {
     }
 
     if (url.pathname === "/configure" && request.method === "POST") {
-      if (expired || current.secret !== body.secret || current.state !== "reserved") {
+      if (expired || current.kind === "desktop" || current.secret !== body.secret || current.state !== "reserved") {
         return json({ error: "Reservation expired" }, 409);
       }
       current.whipPublishURL = body.whipPublishURL;
@@ -61,7 +66,7 @@ export class PairingSession extends DurableObject<Env> {
     }
 
     if (url.pathname === "/join" && request.method === "POST") {
-      if (expired || current.state !== "waiting" || !current.whipPublishURL) {
+      if (expired || current.kind === "desktop" || current.state !== "waiting" || !current.whipPublishURL) {
         return json({ error: "That code is invalid, expired, or already used." }, 404);
       }
       current.state = "claimed";
@@ -74,7 +79,7 @@ export class PairingSession extends DurableObject<Env> {
     }
 
     if (url.pathname === "/status" && request.method === "POST") {
-      if (expired || current.secret !== body.secret) {
+      if (expired || current.kind === "desktop" || current.secret !== body.secret) {
         return json({ error: "Pairing session expired." }, 404);
       }
       return json({
@@ -82,6 +87,57 @@ export class PairingSession extends DurableObject<Env> {
         playbackURL: current.state === "claimed" ? current.whepPlaybackURL : undefined,
         expiresAt: new Date(current.expiresAt).toISOString()
       });
+    }
+
+    if (url.pathname === "/desktop/reserve" && request.method === "POST") {
+      if (!expired) return json({ error: "Code already in use" }, 409);
+      await this.ctx.storage.put<StoredSession>("session", {
+        kind: "desktop",
+        secret: body.secret,
+        expiresAt: Number(body.expiresAt),
+        state: "waiting"
+      });
+      return json({ ok: true });
+    }
+
+    if (url.pathname === "/desktop/offer" && request.method === "POST") {
+      if (expired || current.kind !== "desktop" || current.secret !== body.secret || !body.sdp) {
+        return json({ error: "Desktop session expired." }, 404);
+      }
+      current.offer = body.sdp;
+      await this.ctx.storage.put("session", current);
+      return json({ ok: true });
+    }
+
+    if (url.pathname === "/desktop/join" && request.method === "POST") {
+      if (expired || current.kind !== "desktop" || !current.offer || current.state === "claimed") {
+        return json({ error: "That desktop code is invalid, expired, or already used." }, 404);
+      }
+      current.viewerSecret = body.viewerSecret;
+      current.state = "claimed";
+      await this.ctx.storage.put("session", current);
+      return json({ offer: current.offer, expiresAt: new Date(current.expiresAt).toISOString() });
+    }
+
+    if (url.pathname === "/desktop/answer" && request.method === "POST") {
+      if (expired || current.kind !== "desktop" || current.viewerSecret !== body.viewerSecret || !body.sdp) {
+        return json({ error: "Desktop session expired." }, 404);
+      }
+      current.answer = body.sdp;
+      await this.ctx.storage.put("session", current);
+      return json({ ok: true });
+    }
+
+    if (url.pathname === "/desktop/status" && request.method === "POST") {
+      if (expired || current.kind !== "desktop" || current.secret !== body.secret) {
+        return json({ error: "Desktop session expired." }, 404);
+      }
+      return json({ joined: current.state === "claimed", answer: current.answer });
+    }
+
+    if (url.pathname === "/desktop/release" && request.method === "POST") {
+      if (current?.kind === "desktop" && current.secret === body.secret) await this.ctx.storage.delete("session");
+      return json({ ok: true });
     }
 
     return json({ error: "Not found" }, 404);
@@ -102,6 +158,18 @@ export default {
         response = await joinPairing(request, env);
       } else if (url.pathname === "/v1/pair/status" && request.method === "GET") {
         response = await pairingStatus(url, env);
+      } else if (url.pathname === "/v1/desktop/create" && request.method === "POST") {
+        response = await createDesktopSession(env);
+      } else if (url.pathname === "/v1/desktop/offer" && request.method === "POST") {
+        response = await setDesktopOffer(request, env);
+      } else if (url.pathname === "/v1/desktop/join" && request.method === "POST") {
+        response = await joinDesktopSession(request, env);
+      } else if (url.pathname === "/v1/desktop/answer" && request.method === "POST") {
+        response = await setDesktopAnswer(request, env);
+      } else if (url.pathname === "/v1/desktop/status" && request.method === "GET") {
+        response = await desktopStatus(url, env);
+      } else if (url.pathname === "/v1/desktop/release" && request.method === "POST") {
+        response = await releaseDesktopSession(request, env);
       } else if (url.pathname === "/health") {
         response = json({
           ok: true,
@@ -185,6 +253,81 @@ async function pairingStatus(url: URL, env: Env): Promise<Response> {
     method: "POST",
     body: JSON.stringify({ secret })
   });
+}
+
+async function createDesktopSession(env: Env): Promise<Response> {
+  const secret = randomToken();
+  const expiresAt = Date.now() + SESSION_TTL_MS;
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    const code = randomCode();
+    const stub = env.PAIRING_SESSION.getByName(code);
+    const reserved = await stub.fetch("https://session/desktop/reserve", {
+      method: "POST",
+      body: JSON.stringify({ secret, expiresAt })
+    });
+    if (reserved.ok) {
+      return json({ code, hostToken: `${code}.${secret}`, expiresAt: new Date(expiresAt).toISOString() });
+    }
+  }
+  return json({ error: "Could not allocate a desktop code. Try again." }, 503);
+}
+
+async function setDesktopOffer(request: Request, env: Env): Promise<Response> {
+  const body = await request.json<{ token?: string; sdp?: string }>();
+  const token = parseToken(body.token);
+  if (!token || !body.sdp) return json({ error: "Invalid desktop offer." }, 400);
+  return env.PAIRING_SESSION.getByName(token.code).fetch("https://session/desktop/offer", {
+    method: "POST",
+    body: JSON.stringify({ secret: token.secret, sdp: body.sdp })
+  });
+}
+
+async function joinDesktopSession(request: Request, env: Env): Promise<Response> {
+  const body = await request.json<{ code?: string }>();
+  const code = (body.code || "").replace(/\D/g, "");
+  if (!/^\d{6}$/.test(code)) return json({ error: "Enter the six-digit desktop code." }, 400);
+  const viewerSecret = randomToken();
+  const response = await env.PAIRING_SESSION.getByName(code).fetch("https://session/desktop/join", {
+    method: "POST",
+    body: JSON.stringify({ viewerSecret })
+  });
+  const payload = await response.json<Record<string, unknown>>();
+  if (!response.ok) return json(payload, response.status);
+  return json({ ...payload, viewerToken: `${code}.${viewerSecret}` });
+}
+
+async function setDesktopAnswer(request: Request, env: Env): Promise<Response> {
+  const body = await request.json<{ token?: string; sdp?: string }>();
+  const token = parseToken(body.token);
+  if (!token || !body.sdp) return json({ error: "Invalid desktop answer." }, 400);
+  return env.PAIRING_SESSION.getByName(token.code).fetch("https://session/desktop/answer", {
+    method: "POST",
+    body: JSON.stringify({ viewerSecret: token.secret, sdp: body.sdp })
+  });
+}
+
+async function desktopStatus(url: URL, env: Env): Promise<Response> {
+  const token = parseToken(url.searchParams.get("token"));
+  if (!token) return json({ error: "Invalid desktop session token." }, 400);
+  return env.PAIRING_SESSION.getByName(token.code).fetch("https://session/desktop/status", {
+    method: "POST",
+    body: JSON.stringify({ secret: token.secret })
+  });
+}
+
+async function releaseDesktopSession(request: Request, env: Env): Promise<Response> {
+  const body = await request.json<{ token?: string }>();
+  const token = parseToken(body.token);
+  if (!token) return json({ ok: true });
+  return env.PAIRING_SESSION.getByName(token.code).fetch("https://session/desktop/release", {
+    method: "POST",
+    body: JSON.stringify({ secret: token.secret })
+  });
+}
+
+function parseToken(value: string | null | undefined): { code: string; secret: string } | null {
+  const [code, secret] = (value || "").split(".", 2);
+  return /^\d{6}$/.test(code) && Boolean(secret) ? { code, secret } : null;
 }
 
 async function createCloudflareLiveInput(env: Env, code: string) {
