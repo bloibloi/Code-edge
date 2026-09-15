@@ -1,14 +1,14 @@
 # iPhone Remote
 
-A low-latency, view-only iPhone screen viewer designed for a Chromebook. The iPhone publishes its ReplayKit screen capture to Cloudflare Stream over WHIP/WebRTC, and the browser receives it over WHEP/WebRTC.
+A private, view-only iPhone screen viewer designed for a Chromebook. The iPhone publishes its screen from StreamChamp to Cloudflare Stream over RTMPS, and the browser receives it over WHEP/WebRTC.
 
 Live website: https://bloibloi.github.io/Code-edge/
 
 ## User flow
 
-1. Open the website on the iPhone and expand **Stream this iPhone with Moblin**.
-2. Create a private session and tap **Open in Moblin**.
-3. Use Moblin's screen-capture source and start the iOS Screen Broadcast.
+1. Open the website on the iPhone and expand **Stream this iPhone with StreamChamp**.
+2. Create a private session and copy its RTMPS server and stream key into a StreamChamp Custom RTMP destination.
+3. Start StreamChamp's iOS Screen Broadcast.
 4. On the Chromebook, enter the temporary six-digit code.
 
 The website is view-only. A Bluetooth mouse or keyboard can be paired directly with the iPhone for control.
@@ -16,8 +16,8 @@ The website is view-only. A Bluetooth mouse or keyboard can be paired directly w
 ## Architecture
 
 ```text
-iPhone Remote app + ReplayKit extension
-    └── WHIP/WebRTC publish
+StreamChamp + iOS Screen Broadcast
+    └── secure RTMPS publish
           └── Cloudflare Stream Live Input
                 └── WHEP/WebRTC playback
                       └── Chromebook website
@@ -26,7 +26,7 @@ GitHub Pages ── six-digit code ── Cloudflare pairing Worker
                                       └── creates short-lived Live Input
 ```
 
-The Cloudflare API token never enters the GitHub Pages site. The API token is a Worker secret. The private WHIP publishing URL is returned only to the device that creates the session. The raw WHEP playback URL remains inside the Worker; a viewer receives only an unguessable, short-lived token after supplying the temporary code.
+The Cloudflare API token never enters the GitHub Pages site. The API token is a Worker secret. The private RTMPS stream key is returned only to the device that creates the session. The raw WHEP playback URL remains inside the Worker; a viewer receives only an unguessable, short-lived token after supplying the temporary code.
 
 ## Project layout
 
