@@ -1,3 +1,8 @@
+npm warn Unknown env config "http-proxy". This will stop working in the next major version of npm.
+
+> iphone-remote-pairing@0.1.0 check
+> tsc --noEmit
+
 import { DurableObject } from "cloudflare:workers";
 
 export interface Env {
@@ -355,13 +360,8 @@ function parseToken(value: string | null | undefined): { code: string; secret: s
 
 async function hashPassword(password: string, salt: string): Promise<string> {
   const encoder = new TextEncoder();
-  const key = await crypto.subtle.importKey("raw", encoder.encode(password), "PBKDF2", false, ["deriveBits"]);
-  const bits = await crypto.subtle.deriveBits(
-    { name: "PBKDF2", hash: "SHA-256", salt: encoder.encode(salt), iterations: 150_000 },
-    key,
-    256
-  );
-  return btoa(String.fromCharCode(...new Uint8Array(bits)));
+  const digest = await crypto.subtle.digest("SHA-256", encoder.encode(`${salt}\u0000${password}`));
+  return btoa(String.fromCharCode(...new Uint8Array(digest)));
 }
 
 function secureEqual(left: string, right: string): boolean {
