@@ -2,9 +2,53 @@ import { DurableObject } from "cloudflare:workers";
 
 export interface Env {
   PAIRING_SESSION: DurableObjectNamespace<PairingSession>;
+  PLEX_SESSION: DurableObjectNamespace<PlexSession>;
   CLOUDFLARE_ACCOUNT_ID: string;
   CLOUDFLARE_API_TOKEN: string;
   ALLOWED_ORIGIN: string;
+}
+
+type PlexServer = { id: string; name: string; uri: string; accessToken?: string };
+type PlexState = {
+  pinId: number;
+  pinCode: string;
+  expiresAt: number;
+  plexToken?: string;
+  username?: string;
+  servers?: PlexServer[];
+  selectedServerId?: string;
+};
+
+const PLEX_PRODUCT = "Remote Screen";
+const PLEX_CLIENT_ID = "remote-screen-bloibloi-github-pages";
+const PLEX_SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+
+export class PlexSession extends DurableObject<Env> {
+  async fetch(request: Request): Promise<Response> {
+    const url = new URL(request.url);
+    const state = await this.ctx.storage.get<PlexState>("plex");
+    if (url.pathname === "/store" && request.method === "POST") {
+      await this.ctx.storage.put("plex", await request.json<PlexState>());
+      return json({ ok: true });
+    }
+    if (url.pathname === "/read") {
+      if (!state || state.expiresAt <= Date.now()) {
+        if (state) await this.ctx.storage.delete("plex");
+        return json({ error: "Plex session expired." }, 401);
+      }
+      return json(state);
+    }
+    if (url.pathname === "/update" && request.method === "POST") {
+      if (!state || state.expiresAt <= Date.now()) return json({ error: "Plex session expired." }, 401);
+      await this.ctx.storage.put("plex", { ...state, ...await request.json<Partial<PlexState>>() });
+      return json({ ok: true });
+    }
+    if (url.pathname === "/delete" && request.method === "POST") {
+      await this.ctx.storage.delete("plex");
+      return json({ ok: true });
+    }
+    return json({ error: "Not found" }, 404);
+  }
 }
 
 type StoredSession = {
@@ -267,6 +311,30 @@ export default {
         response = await desktopStatus(url, env);
       } else if (url.pathname === "/v1/desktop/release" && request.method === "POST") {
         response = await releaseDesktopSession(request, env);
+      } else if (url.pathname === "/v1/plex/auth/start" && request.method === "POST") {
+        response = await startPlexAuth(env);
+      } else if (url.pathname === "/v1/plex/auth/status" && request.method === "GET") {
+        response = await plexAuthStatus(request, env);
+      } else if (url.pathname === "/v1/plex/logout" && request.method === "POST") {
+        response = await plexLogout(request, env);
+      } else if (url.pathname === "/v1/plex/servers" && request.method === "GET") {
+        response = await plexServers(request, env);
+      } else if (url.pathname === "/v1/plex/server" && request.method === "POST") {
+        response = await selectPlexServer(request, env);
+      } else if (url.pathname === "/v1/plex/libraries" && request.method === "GET") {
+        response = await plexLibraries(request, env);
+      } else if (/^\/v1\/plex\/library\/\d+\/items$/.test(url.pathname) && request.method === "GET") {
+        response = await plexLibraryItems(request, env, url.pathname.split("/")[4]);
+      } else if (/^\/v1\/plex\/item\/\d+$/.test(url.pathname) && request.method === "GET") {
+        response = await plexItem(request, env, url.pathname.split("/")[4]);
+      } else if (/^\/v1\/plex\/children\/\d+$/.test(url.pathname) && request.method === "GET") {
+        response = await plexChildren(request, env, url.pathname.split("/")[4]);
+      } else if (url.pathname === "/v1/plex/image" && request.method === "GET") {
+        response = await plexImage(request, env, url.searchParams.get("path") || "");
+      } else if (/^\/v1\/plex\/playback\/\d+$/.test(url.pathname) && request.method === "GET") {
+        response = await plexPlaybackInfo(request, env, url.pathname.split("/")[4]);
+      } else if (/^\/v1\/plex\/stream\/\d+$/.test(url.pathname) && ["GET", "HEAD"].includes(request.method)) {
+        response = await plexStream(request, env, url.pathname.split("/")[4]);
       } else if (url.pathname === "/health") {
         response = json({
           ok: true,
@@ -278,14 +346,14 @@ export default {
       }
       const headers = new Headers(response.headers);
       Object.entries(cors).forEach(([key, value]) => headers.set(key, value));
-      headers.set("Cache-Control", "no-store");
+      if (!url.pathname.startsWith("/v1/plex/stream/") && url.pathname !== "/v1/plex/image") headers.set("Cache-Control", "no-store");
       return new Response(response.body, { status: response.status, headers });
     } catch (error) {
       console.error(error);
-      const message = error instanceof PublicError
+      const message = error instanceof PublicError || error instanceof HttpError
         ? error.message
         : "The pairing service could not complete the request.";
-      const response = json({ error: message }, error instanceof PublicError ? 502 : 500);
+      const response = json({ error: message }, error instanceof HttpError ? error.status : error instanceof PublicError ? 502 : 500);
       const headers = new Headers(response.headers);
       Object.entries(cors).forEach(([key, value]) => headers.set(key, value));
       return new Response(response.body, { status: response.status, headers });
@@ -544,6 +612,278 @@ async function releaseDesktopSession(request: Request, env: Env): Promise<Respon
   });
 }
 
+async function startPlexAuth(env: Env): Promise<Response> {
+  const response = await fetch("https://plex.tv/api/v2/pins?strong=true", {
+    method: "POST",
+    headers: plexHeaders()
+  });
+  const pin = await response.json<{ id?: number; code?: string }>();
+  if (!response.ok || !pin.id || !pin.code) throw new PublicError("Plex could not start authorization.");
+  const session = randomToken();
+  const expiresAt = Date.now() + PLEX_SESSION_TTL_MS;
+  await env.PLEX_SESSION.getByName(session).fetch("https://plex/store", {
+    method: "POST",
+    body: JSON.stringify({ pinId: pin.id, pinCode: pin.code, expiresAt })
+  });
+  const forwardUrl = `${env.ALLOWED_ORIGIN}/Code-edge/#media`;
+  const authUrl = new URL("https://app.plex.tv/auth");
+  authUrl.hash = `?${new URLSearchParams({
+    clientID: PLEX_CLIENT_ID,
+    code: pin.code,
+    forwardUrl,
+    "context[device][product]": PLEX_PRODUCT
+  }).toString()}`;
+  return json({ session, authUrl: authUrl.toString(), expiresAt: new Date(expiresAt).toISOString() });
+}
+
+async function plexAuthStatus(request: Request, env: Env): Promise<Response> {
+  const auth = await readPlexState(request, env, false);
+  if (auth.state.plexToken) return json(plexPublicSession(auth.state));
+  const response = await fetch(`https://plex.tv/api/v2/pins/${auth.state.pinId}`, { headers: plexHeaders() });
+  const pin = await response.json<{ authToken?: string | null }>();
+  if (!response.ok) throw new PublicError("Plex authorization could not be checked.");
+  if (!pin.authToken) return json({ authenticated: false });
+
+  const [userResponse, resourcesResponse] = await Promise.all([
+    fetch("https://plex.tv/api/v2/user", { headers: plexHeaders(pin.authToken) }),
+    fetch("https://plex.tv/api/v2/resources?includeHttps=1&includeRelay=1", { headers: plexHeaders(pin.authToken) })
+  ]);
+  const user = await userResponse.json<{ username?: string; email?: string }>();
+  const resources = await resourcesResponse.json<Array<Record<string, unknown>>>();
+  if (!userResponse.ok || !resourcesResponse.ok) throw new PublicError("Plex account information could not be loaded.");
+  const servers = resources.filter((resource) => {
+    const provides = String(resource.provides || "").split(",");
+    return provides.includes("server");
+  }).flatMap((resource) => {
+    const connections = Array.isArray(resource.connections) ? resource.connections as Array<Record<string, unknown>> : [];
+    const connection = connections.find((entry) => isSecurePlexUri(entry.uri)) || null;
+    if (!connection) return [];
+    return [{
+      id: String(resource.clientIdentifier || ""),
+      name: String(resource.name || "Plex Server"),
+      uri: String(connection.uri).replace(/\/$/, ""),
+      accessToken: String(resource.accessToken || pin.authToken)
+    }];
+  }).filter((server) => server.id);
+  const updated: Partial<PlexState> = {
+    plexToken: pin.authToken,
+    username: user.username || user.email || "Plex account",
+    servers,
+    selectedServerId: servers[0]?.id
+  };
+  await auth.stub.fetch("https://plex/update", { method: "POST", body: JSON.stringify(updated) });
+  return json(plexPublicSession({ ...auth.state, ...updated }));
+}
+
+async function plexLogout(request: Request, env: Env): Promise<Response> {
+  const session = bearerToken(request) || new URL(request.url).searchParams.get("session") || "";
+  if (session) await env.PLEX_SESSION.getByName(session).fetch("https://plex/delete", { method: "POST" });
+  return json({ ok: true });
+}
+
+async function plexServers(request: Request, env: Env): Promise<Response> {
+  const { state } = await readPlexState(request, env);
+  return json(plexPublicSession(state));
+}
+
+async function selectPlexServer(request: Request, env: Env): Promise<Response> {
+  const auth = await readPlexState(request, env);
+  const body = await request.json<{ serverId?: string }>();
+  if (!auth.state.servers?.some((server) => server.id === body.serverId)) return json({ error: "Plex server not found." }, 404);
+  await auth.stub.fetch("https://plex/update", { method: "POST", body: JSON.stringify({ selectedServerId: body.serverId }) });
+  return json({ ok: true });
+}
+
+async function plexLibraries(request: Request, env: Env): Promise<Response> {
+  const auth = await readPlexState(request, env);
+  const payload = await plexServerJson(auth.state, "/library/sections");
+  const directories = plexArray(payload, "Directory");
+  return json({ libraries: directories.filter((item) => ["movie", "show"].includes(String(item.type))).map((item) => ({
+    key: String(item.key || ""), title: String(item.title || "Library"), type: String(item.type || "")
+  })) });
+}
+
+async function plexLibraryItems(request: Request, env: Env, libraryKey: string): Promise<Response> {
+  const auth = await readPlexState(request, env);
+  const payload = await plexServerJson(auth.state, `/library/sections/${libraryKey}/all?sort=titleSort`);
+  return json({ items: plexArray(payload, "Metadata").slice(0, 500).map((item) => normalizePlexItem(item)) });
+}
+
+async function plexItem(request: Request, env: Env, ratingKey: string): Promise<Response> {
+  const auth = await readPlexState(request, env);
+  const payload = await plexServerJson(auth.state, `/library/metadata/${ratingKey}`);
+  const item = plexArray(payload, "Metadata")[0];
+  if (!item) return json({ error: "Media item not found." }, 404);
+  return json({ item: normalizePlexItem(item, true) });
+}
+
+async function plexChildren(request: Request, env: Env, ratingKey: string): Promise<Response> {
+  const auth = await readPlexState(request, env);
+  const payload = await plexServerJson(auth.state, `/library/metadata/${ratingKey}/children`);
+  return json({ items: plexArray(payload, "Metadata").map((item) => normalizePlexItem(item, true)) });
+}
+
+async function plexImage(request: Request, env: Env, path: string): Promise<Response> {
+  const auth = await readPlexState(request, env, true);
+  if (!safePlexPath(path)) return json({ error: "Invalid image path." }, 400);
+  const upstream = await plexServerFetch(auth.state, path, { headers: { "Accept": "image/*" } });
+  if (!upstream.ok) return json({ error: "Artwork unavailable." }, upstream.status);
+  const headers = copyMediaHeaders(upstream.headers);
+  headers.set("Cache-Control", "private, max-age=3600");
+  return new Response(upstream.body, { status: upstream.status, headers });
+}
+
+async function plexPlaybackInfo(request: Request, env: Env, ratingKey: string): Promise<Response> {
+  const auth = await readPlexState(request, env);
+  const item = await plexRawItem(auth.state, ratingKey);
+  const media = Array.isArray(item.Media) ? item.Media[0] as Record<string, unknown> : undefined;
+  const part = media && Array.isArray(media.Part) ? media.Part[0] as Record<string, unknown> : undefined;
+  if (!part?.key) return json({ error: "No playable file was found." }, 404);
+  const direct = browserDirectPlay(media || {});
+  const session = bearerToken(request) || "";
+  return json({
+    url: `${new URL(request.url).origin}/v1/plex/stream/${ratingKey}?session=${encodeURIComponent(session)}`,
+    mode: direct ? "direct" : "transcode",
+    note: direct ? "Direct Play: the browser supports this container and codec." : "Plex is converting this file to H.264/AAC MP4 for browser playback."
+  });
+}
+
+async function plexStream(request: Request, env: Env, ratingKey: string): Promise<Response> {
+  const auth = await readPlexState(request, env, true);
+  const item = await plexRawItem(auth.state, ratingKey);
+  const media = Array.isArray(item.Media) ? item.Media[0] as Record<string, unknown> : undefined;
+  const part = media && Array.isArray(media.Part) ? media.Part[0] as Record<string, unknown> : undefined;
+  if (!part?.key) return json({ error: "No playable file was found." }, 404);
+  let path = String(part.key);
+  if (!browserDirectPlay(media || {})) {
+    const params = new URLSearchParams({
+      path: `/library/metadata/${ratingKey}`,
+      mediaIndex: "0", partIndex: "0", protocol: "http", fastSeek: "1",
+      directPlay: "0", directStream: "0", container: "mp4", videoCodec: "h264",
+      audioCodec: "aac", maxVideoBitrate: "12000", videoQuality: "100",
+      session: `${new URL(request.url).searchParams.get("session") || "plex"}-${ratingKey}`, "X-Plex-Client-Identifier": PLEX_CLIENT_ID
+    });
+    path = `/video/:/transcode/universal/start.mp4?${params}`;
+  }
+  const headers: Record<string, string> = {};
+  const range = request.headers.get("Range");
+  if (range) headers.Range = range;
+  const upstream = await plexServerFetch(auth.state, path, { method: request.method, headers });
+  const outgoing = copyMediaHeaders(upstream.headers);
+  outgoing.set("Cache-Control", "private, no-store");
+  return new Response(request.method === "HEAD" ? null : upstream.body, { status: upstream.status, headers: outgoing });
+}
+
+async function readPlexState(request: Request, env: Env, allowQuery = false): Promise<{ state: PlexState; stub: DurableObjectStub<PlexSession> }> {
+  const session = bearerToken(request) || (allowQuery ? new URL(request.url).searchParams.get("session") : "") || "";
+  if (!/^[A-Za-z0-9_-]{20,80}$/.test(session)) throw new HttpError("Connect your Plex account first.", 401);
+  const stub = env.PLEX_SESSION.getByName(session);
+  const response = await stub.fetch("https://plex/read");
+  const state = await response.json<PlexState & { error?: string }>();
+  if (!response.ok) throw new HttpError(state.error || "Plex session expired.", response.status);
+  if (!state.plexToken && !request.url.includes("/auth/status")) throw new HttpError("Finish signing in with Plex.", 401);
+  return { state, stub };
+}
+
+function plexPublicSession(state: PlexState) {
+  return {
+    authenticated: Boolean(state.plexToken),
+    username: state.username,
+    selectedServerId: state.selectedServerId,
+    servers: (state.servers || []).map(({ id, name }) => ({ id, name }))
+  };
+}
+
+function plexHeaders(token?: string): Record<string, string> {
+  return {
+    "Accept": "application/json",
+    "X-Plex-Product": PLEX_PRODUCT,
+    "X-Plex-Version": "1.0",
+    "X-Plex-Client-Identifier": PLEX_CLIENT_ID,
+    "X-Plex-Platform": "Web",
+    ...(token ? { "X-Plex-Token": token } : {})
+  };
+}
+
+function bearerToken(request: Request): string {
+  const match = request.headers.get("Authorization")?.match(/^Bearer ([A-Za-z0-9_-]+)$/);
+  return match?.[1] || "";
+}
+
+function selectedPlexServer(state: PlexState): PlexServer {
+  const server = state.servers?.find((entry) => entry.id === state.selectedServerId) || state.servers?.[0];
+  if (!server) throw new HttpError("No securely reachable Plex Media Server was found.", 404);
+  return server;
+}
+
+async function plexServerFetch(state: PlexState, path: string, init: RequestInit = {}): Promise<Response> {
+  if (!safePlexPath(path)) throw new HttpError("Invalid Plex request.", 400);
+  const server = selectedPlexServer(state);
+  const headers = new Headers(init.headers);
+  Object.entries(plexHeaders(server.accessToken || state.plexToken)).forEach(([key, value]) => headers.set(key, value));
+  return fetch(`${server.uri}${path}`, { ...init, headers, redirect: "follow" });
+}
+
+async function plexServerJson(state: PlexState, path: string): Promise<Record<string, unknown>> {
+  const response = await plexServerFetch(state, path);
+  if (!response.ok) throw new PublicError(`Plex Media Server returned HTTP ${response.status}.`);
+  return response.json<Record<string, unknown>>();
+}
+
+async function plexRawItem(state: PlexState, ratingKey: string): Promise<Record<string, unknown>> {
+  const payload = await plexServerJson(state, `/library/metadata/${ratingKey}`);
+  const item = plexArray(payload, "Metadata")[0];
+  if (!item) throw new HttpError("Media item not found.", 404);
+  return item;
+}
+
+function plexArray(payload: Record<string, unknown>, key: string): Array<Record<string, unknown>> {
+  const container = payload.MediaContainer as Record<string, unknown> | undefined;
+  return container && Array.isArray(container[key]) ? container[key] as Array<Record<string, unknown>> : [];
+}
+
+function normalizePlexItem(item: Record<string, unknown>, detailed = false) {
+  const media = Array.isArray(item.Media) ? item.Media[0] as Record<string, unknown> : undefined;
+  const result: Record<string, unknown> = {
+    ratingKey: String(item.ratingKey || ""), type: String(item.type || ""), title: String(item.title || "Untitled"),
+    year: Number(item.year) || null, thumb: typeof item.thumb === "string" ? item.thumb : null,
+    summary: detailed ? String(item.summary || "") : undefined,
+    index: Number(item.index) || null, parentIndex: Number(item.parentIndex) || null,
+    parentTitle: String(item.parentTitle || ""), grandparentTitle: String(item.grandparentTitle || ""),
+    duration: Number(item.duration) || null
+  };
+  if (detailed && media) result.media = {
+    container: String(media.container || ""), videoCodec: String(media.videoCodec || ""),
+    audioCodec: String(media.audioCodec || ""), width: Number(media.width) || null,
+    height: Number(media.height) || null, bitrate: Number(media.bitrate) || null
+  };
+  return result;
+}
+
+function browserDirectPlay(media: Record<string, unknown>): boolean {
+  const container = String(media.container || "").toLowerCase();
+  const video = String(media.videoCodec || "").toLowerCase();
+  const audio = String(media.audioCodec || "").toLowerCase();
+  return ["mp4", "webm"].includes(container) && ["h264", "av1", "vp8", "vp9"].includes(video) && ["aac", "mp3", "opus", "vorbis", ""].includes(audio);
+}
+
+function safePlexPath(path: string): boolean {
+  return path.startsWith("/") && !path.includes("://") && !path.includes("\\") && !path.includes("\u0000");
+}
+
+function isSecurePlexUri(value: unknown): boolean {
+  if (typeof value !== "string") return false;
+  try { return new URL(value).protocol === "https:"; } catch { return false; }
+}
+
+function copyMediaHeaders(source: Headers): Headers {
+  const output = new Headers();
+  ["Content-Type", "Content-Length", "Content-Range", "Accept-Ranges", "ETag", "Last-Modified"].forEach((name) => {
+    const value = source.get(name); if (value) output.set(name, value);
+  });
+  return output;
+}
+
 function parseToken(value: string | null | undefined): { code: string; secret: string } | null {
   const [code, secret] = (value || "").split(".", 2);
   return /^\d{6}$/.test(code) && Boolean(secret) ? { code, secret } : null;
@@ -602,8 +942,9 @@ function corsHeaders(request: Request, env: Env): Record<string, string> {
   const allowed = origin === env.ALLOWED_ORIGIN || origin === "http://localhost:8080";
   return {
     "Access-Control-Allow-Origin": allowed ? origin : env.ALLOWED_ORIGIN,
-    "Access-Control-Allow-Headers": "Content-Type",
+    "Access-Control-Allow-Headers": "Content-Type, Authorization, Range",
     "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+    "Access-Control-Expose-Headers": "Content-Length, Content-Range, Accept-Ranges",
     "Vary": "Origin"
   };
 }
@@ -625,3 +966,4 @@ function json(value: unknown, status = 200): Response {
 }
 
 class PublicError extends Error {}
+class HttpError extends Error { constructor(message: string, public status: number) { super(message); } }
