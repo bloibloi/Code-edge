@@ -354,7 +354,7 @@ export default {
       } else if (url.pathname === "/health") {
         response = json({
           ok: true,
-          version: "plex-persistent-secret-1",
+          version: "plex-persistent-secret-2",
           streamConfigured: Boolean(env.CLOUDFLARE_ACCOUNT_ID && env.CLOUDFLARE_API_TOKEN),
           pairingStorageConfigured: Boolean(env.PAIRING_SESSION),
           plexStorageConfigured: Boolean(env.PLEX_SESSION),
