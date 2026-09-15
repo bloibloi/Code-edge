@@ -5,15 +5,16 @@ export interface Env {
   PLEX_SESSION: DurableObjectNamespace<PlexSession>;
   CLOUDFLARE_ACCOUNT_ID: string;
   CLOUDFLARE_API_TOKEN: string;
+  PLEX_TOKEN: string;
+  PLEX_SITE_PASSWORD: string;
   ALLOWED_ORIGIN: string;
 }
 
-type PlexServer = { id: string; name: string; uris: string[]; uri?: string; accessToken?: string };
+type PlexServer = { id: string; name: string; uris: string[]; uri?: string };
 type PlexState = {
-  pinId: number;
-  pinCode: string;
+  authenticated: boolean;
   expiresAt: number;
-  plexToken?: string;
+  plexToken?: string; // Added only to in-memory request state; never persisted.
   username?: string;
   servers?: PlexServer[];
   selectedServerId?: string;
@@ -47,6 +48,18 @@ export class PlexSession extends DurableObject<Env> {
     if (url.pathname === "/delete" && request.method === "POST") {
       await this.ctx.storage.delete("plex");
       return json({ ok: true });
+    }
+    if (url.pathname === "/login-attempt" && request.method === "POST") {
+      const attempt = await request.json<{ success?: boolean }>();
+      const gate = await this.ctx.storage.get<{ failures: number; blockedUntil: number }>("loginGate") || { failures: 0, blockedUntil: 0 };
+      if (gate.blockedUntil > Date.now()) return json({ error: "Too many attempts. Try again in 15 minutes." }, 429);
+      if (attempt.success) {
+        await this.ctx.storage.delete("loginGate");
+        return json({ ok: true });
+      }
+      const failures = gate.failures + 1;
+      await this.ctx.storage.put("loginGate", { failures, blockedUntil: failures >= 5 ? Date.now() + 15 * 60 * 1000 : 0 });
+      return json({ error: failures >= 5 ? "Too many attempts. Try again in 15 minutes." : "Incorrect password." }, failures >= 5 ? 429 : 401);
     }
     return json({ error: "Not found" }, 404);
   }
@@ -312,10 +325,8 @@ export default {
         response = await desktopStatus(url, env);
       } else if (url.pathname === "/v1/desktop/release" && request.method === "POST") {
         response = await releaseDesktopSession(request, env);
-      } else if (url.pathname === "/v1/plex/auth/start" && request.method === "POST") {
-        response = await startPlexAuth(env);
-      } else if (url.pathname === "/v1/plex/auth/status" && request.method === "GET") {
-        response = await plexAuthStatus(request, env);
+      } else if (url.pathname === "/v1/plex/login" && request.method === "POST") {
+        response = await plexLogin(request, env);
       } else if (url.pathname === "/v1/plex/logout" && request.method === "POST") {
         response = await plexLogout(request, env);
       } else if (url.pathname === "/v1/plex/servers" && request.method === "GET") {
@@ -343,10 +354,11 @@ export default {
       } else if (url.pathname === "/health") {
         response = json({
           ok: true,
-          version: "plex-mkv-relay-profile-5",
+          version: "plex-persistent-secret-1",
           streamConfigured: Boolean(env.CLOUDFLARE_ACCOUNT_ID && env.CLOUDFLARE_API_TOKEN),
           pairingStorageConfigured: Boolean(env.PAIRING_SESSION),
-          plexStorageConfigured: Boolean(env.PLEX_SESSION)
+          plexStorageConfigured: Boolean(env.PLEX_SESSION),
+          plexSecretsConfigured: Boolean(env.PLEX_TOKEN && env.PLEX_SITE_PASSWORD)
         });
       } else {
         response = json({ error: "Not found" }, 404);
@@ -619,55 +631,42 @@ async function releaseDesktopSession(request: Request, env: Env): Promise<Respon
   });
 }
 
-async function startPlexAuth(env: Env): Promise<Response> {
-  const response = await fetch("https://plex.tv/api/v2/pins?strong=true", {
+async function plexLogin(request: Request, env: Env): Promise<Response> {
+  if (!env.PLEX_TOKEN || !env.PLEX_SITE_PASSWORD) throw new HttpError("Plex access is not configured yet.", 503);
+  const body = await request.json<{ password?: string }>();
+  const password = typeof body.password === "string" ? body.password : "";
+  if (!password || password.length > 256) throw new HttpError("Incorrect password.", 401);
+  const address = request.headers.get("CF-Connecting-IP") || "unknown";
+  const gate = env.PLEX_SESSION.getByName(`login-${await sha256Base64Url(address)}`);
+  const gateResponse = await gate.fetch("https://plex/login-attempt", {
     method: "POST",
-    headers: plexHeaders()
+    body: JSON.stringify({ success: await secretEqual(password, env.PLEX_SITE_PASSWORD) })
   });
-  const pin = await response.json<{ id?: number; code?: string }>();
-  if (!response.ok || !pin.id || !pin.code) throw new PublicError("Plex could not start authorization.");
-  const session = randomToken();
-  const expiresAt = Date.now() + PLEX_SESSION_TTL_MS;
-  await env.PLEX_SESSION.getByName(session).fetch("https://plex/store", {
-    method: "POST",
-    body: JSON.stringify({ pinId: pin.id, pinCode: pin.code, expiresAt })
-  });
-  const forwardUrl = `${env.ALLOWED_ORIGIN}/Code-edge/#media`;
-  const authUrl = new URL("https://app.plex.tv/auth");
-  authUrl.hash = `?${new URLSearchParams({
-    clientID: PLEX_CLIENT_ID,
-    code: pin.code,
-    forwardUrl,
-    "context[device][product]": PLEX_PRODUCT
-  }).toString()}`;
-  return json({ session, authUrl: authUrl.toString(), expiresAt: new Date(expiresAt).toISOString() });
-}
-
-async function plexAuthStatus(request: Request, env: Env): Promise<Response> {
-  const auth = await readPlexState(request, env, false);
-  if (auth.state.plexToken) return json(plexPublicSession(auth.state));
-  const response = await fetch(`https://plex.tv/api/v2/pins/${auth.state.pinId}`, { headers: plexHeaders() });
-  const pin = await response.json<{ authToken?: string | null }>();
-  if (!response.ok) throw new PublicError("Plex authorization could not be checked.");
-  if (!pin.authToken) return json({ authenticated: false });
+  if (!gateResponse.ok) return new Response(gateResponse.body, { status: gateResponse.status, headers: gateResponse.headers });
 
   const [userResponse, resourcesResponse] = await Promise.all([
-    fetch("https://plex.tv/api/v2/user", { headers: plexHeaders(pin.authToken) }),
-    fetch("https://plex.tv/api/v2/resources?includeHttps=1&includeRelay=1", { headers: plexHeaders(pin.authToken) })
+    fetch("https://plex.tv/api/v2/user", { headers: plexHeaders(env.PLEX_TOKEN) }),
+    fetch("https://plex.tv/api/v2/resources?includeHttps=1&includeRelay=1", { headers: plexHeaders(env.PLEX_TOKEN) })
   ]);
   const user = await userResponse.json<{ username?: string; email?: string }>();
   const resources = await resourcesResponse.json<Array<Record<string, unknown>>>();
-  if (!userResponse.ok || !resourcesResponse.ok) throw new PublicError("Plex account information could not be loaded.");
-  const servers = await probePlexServers(parsePlexServers(resources, pin.authToken), pin.authToken);
-  const updated: Partial<PlexState> = {
-    plexToken: pin.authToken,
+  if (!userResponse.ok || !resourcesResponse.ok) throw new HttpError("The configured Plex token could not access the Plex account.", 502);
+  const servers = await probePlexServers(parsePlexServers(resources), env.PLEX_TOKEN);
+  const session = randomToken();
+  const expiresAt = Date.now() + PLEX_SESSION_TTL_MS;
+  const state: PlexState = {
+    authenticated: true,
+    expiresAt,
     username: user.username || user.email || "Plex account",
     servers,
     selectedServerId: servers[0]?.id,
     connectionCheckedAt: Date.now()
   };
-  await auth.stub.fetch("https://plex/update", { method: "POST", body: JSON.stringify(updated) });
-  return json(plexPublicSession({ ...auth.state, ...updated }));
+  await env.PLEX_SESSION.getByName(session).fetch("https://plex/store", {
+    method: "POST",
+    body: JSON.stringify(state)
+  });
+  return json({ session, expiresAt: new Date(expiresAt).toISOString(), ...plexPublicSession(state) });
 }
 
 async function plexLogout(request: Request, env: Env): Promise<Response> {
@@ -681,9 +680,9 @@ async function plexServers(request: Request, env: Env): Promise<Response> {
   if (auth.state.servers?.length && auth.state.connectionCheckedAt && Date.now() - auth.state.connectionCheckedAt < 10 * 60 * 1000) {
     return json(plexPublicSession(auth.state));
   }
-  const response = await fetch("https://plex.tv/api/v2/resources?includeHttps=1&includeRelay=1", { headers: plexHeaders(auth.state.plexToken) });
+  const response = await fetch("https://plex.tv/api/v2/resources?includeHttps=1&includeRelay=1", { headers: plexHeaders(env.PLEX_TOKEN) });
   if (!response.ok) throw new PublicError("Plex server connections could not be refreshed.");
-  const servers = await probePlexServers(parsePlexServers(await response.json<Array<Record<string, unknown>>>(), auth.state.plexToken || ""), auth.state.plexToken || "");
+  const servers = await probePlexServers(parsePlexServers(await response.json<Array<Record<string, unknown>>>()), env.PLEX_TOKEN);
   const selectedServerId = servers.some((server) => server.id === auth.state.selectedServerId) ? auth.state.selectedServerId : servers[0]?.id;
   const connectionCheckedAt = Date.now();
   await auth.stub.fetch("https://plex/update", { method: "POST", body: JSON.stringify({ servers, selectedServerId, connectionCheckedAt }) });
@@ -853,18 +852,19 @@ function rewritePlexManifest(manifest: string, basePath: string, workerOrigin: s
 
 async function readPlexState(request: Request, env: Env, allowQuery = false): Promise<{ state: PlexState; stub: DurableObjectStub<PlexSession> }> {
   const session = bearerToken(request) || (allowQuery ? new URL(request.url).searchParams.get("session") : "") || "";
-  if (!/^[A-Za-z0-9_-]{20,80}$/.test(session)) throw new HttpError("Connect your Plex account first.", 401);
+  if (!/^[A-Za-z0-9_-]{20,80}$/.test(session)) throw new HttpError("Unlock Media first.", 401);
   const stub = env.PLEX_SESSION.getByName(session);
   const response = await stub.fetch("https://plex/read");
   const state = await response.json<PlexState & { error?: string }>();
   if (!response.ok) throw new HttpError(state.error || "Plex session expired.", response.status);
-  if (!state.plexToken && !request.url.includes("/auth/status")) throw new HttpError("Finish signing in with Plex.", 401);
-  return { state, stub };
+  if (!state.authenticated) throw new HttpError("Unlock Media first.", 401);
+  if (!env.PLEX_TOKEN) throw new HttpError("Plex access is not configured yet.", 503);
+  return { state: { ...state, plexToken: env.PLEX_TOKEN }, stub };
 }
 
 function plexPublicSession(state: PlexState) {
   return {
-    authenticated: Boolean(state.plexToken),
+    authenticated: Boolean(state.authenticated),
     username: state.username,
     selectedServerId: state.selectedServerId,
     servers: (state.servers || []).map(({ id, name }) => ({ id, name }))
@@ -900,7 +900,7 @@ async function plexServerFetch(state: PlexState, path: string, init: RequestInit
   if (!safePlexPath(path)) throw new HttpError("Invalid Plex request.", 400);
   const server = selectedPlexServer(state);
   const headers = new Headers(init.headers);
-  Object.entries(plexHeaders(server.accessToken || state.plexToken)).forEach(([key, value]) => headers.set(key, value));
+  Object.entries(plexHeaders(state.plexToken)).forEach(([key, value]) => headers.set(key, value));
   const uris = [...new Set([...(server.uris || []), ...(server.uri ? [server.uri] : [])])];
   let lastResponse: Response | undefined;
   for (const uri of uris) {
@@ -966,7 +966,7 @@ function isSecurePlexUri(value: unknown): boolean {
   try { return new URL(value).protocol === "https:"; } catch { return false; }
 }
 
-function parsePlexServers(resources: Array<Record<string, unknown>>, accountToken: string): PlexServer[] {
+function parsePlexServers(resources: Array<Record<string, unknown>>): PlexServer[] {
   return resources.filter((resource) => String(resource.provides || "").split(",").includes("server")).flatMap((resource) => {
     const connections = Array.isArray(resource.connections) ? resource.connections as Array<Record<string, unknown>> : [];
     const secure = connections
@@ -976,8 +976,7 @@ function parsePlexServers(resources: Array<Record<string, unknown>>, accountToke
     return [{
       id: String(resource.clientIdentifier || ""),
       name: String(resource.name || "Plex Server"),
-      uris: secure.map((entry) => String(entry.uri).replace(/\/$/, "")),
-      accessToken: String(resource.accessToken || accountToken)
+      uris: secure.map((entry) => String(entry.uri).replace(/\/$/, ""))
     }];
   }).filter((server) => server.id);
 }
@@ -987,7 +986,7 @@ async function probePlexServers(servers: PlexServer[], accountToken: string): Pr
     const probes = await Promise.all(server.uris.map(async (uri, index) => {
       try {
         const response = await fetch(`${uri}/identity`, {
-          headers: plexHeaders(server.accessToken || accountToken),
+          headers: plexHeaders(accountToken),
           signal: AbortSignal.timeout(5000)
         });
         return { uri, index, score: response.ok ? 2 : response.status < 500 ? 1 : 0 };
@@ -1000,7 +999,7 @@ async function probePlexServers(servers: PlexServer[], accountToken: string): Pr
 
 async function plexCacheRequest(state: PlexState, suffix: string): Promise<Request> {
   const server = selectedPlexServer(state);
-  const token = server.accessToken || state.plexToken || "";
+  const token = state.plexToken || "";
   const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(`${server.id}\u0000${token}`));
   const accountKey = [...new Uint8Array(digest)].slice(0, 12).map((byte) => byte.toString(16).padStart(2, "0")).join("");
   return new Request(`https://plex-cache.invalid/${accountKey}/${encodeURIComponent(suffix)}`);
@@ -1037,6 +1036,15 @@ async function hashPassword(password: string, salt: string): Promise<string> {
   const encoder = new TextEncoder();
   const digest = await crypto.subtle.digest("SHA-256", encoder.encode(`${salt}\u0000${password}`));
   return btoa(String.fromCharCode(...new Uint8Array(digest)));
+}
+
+async function sha256Base64Url(value: string): Promise<string> {
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value));
+  return btoa(String.fromCharCode(...new Uint8Array(digest))).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+
+async function secretEqual(left: string, right: string): Promise<boolean> {
+  return secureEqual(await sha256Base64Url(left), await sha256Base64Url(right));
 }
 
 function secureEqual(left: string, right: string): boolean {
