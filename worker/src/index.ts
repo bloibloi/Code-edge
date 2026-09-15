@@ -338,7 +338,7 @@ export default {
       } else if (url.pathname === "/health") {
         response = json({
           ok: true,
-          version: "plex-remote-fallback-1",
+          version: "plex-522-relay-fallback-2",
           streamConfigured: Boolean(env.CLOUDFLARE_ACCOUNT_ID && env.CLOUDFLARE_API_TOKEN),
           pairingStorageConfigured: Boolean(env.PAIRING_SESSION),
           plexStorageConfigured: Boolean(env.PLEX_SESSION)
@@ -824,10 +824,10 @@ async function plexServerFetch(state: PlexState, path: string, init: RequestInit
     try {
       const response = await fetch(`${uri}${path}`, { ...init, headers, redirect: "follow" });
       lastResponse = response;
-      if (![401, 403, 502, 503, 504].includes(response.status)) return response;
+      if (![401, 403].includes(response.status) && response.status < 500) return response;
     } catch { /* Try the next Plex-provided secure connection. */ }
   }
-  if (lastResponse) return lastResponse;
+  if (lastResponse && lastResponse.status < 500) return lastResponse;
   throw new HttpError("Plex could not reach this server securely. Enable Remote Access in Plex Server settings.", 502);
 }
 
@@ -886,7 +886,9 @@ function isSecurePlexUri(value: unknown): boolean {
 function parsePlexServers(resources: Array<Record<string, unknown>>, accountToken: string): PlexServer[] {
   return resources.filter((resource) => String(resource.provides || "").split(",").includes("server")).flatMap((resource) => {
     const connections = Array.isArray(resource.connections) ? resource.connections as Array<Record<string, unknown>> : [];
-    const secure = connections.filter((entry) => isSecurePlexUri(entry.uri)).sort((left, right) => connectionRank(left) - connectionRank(right));
+    const secure = connections
+      .filter((entry) => isSecurePlexUri(entry.uri) && !plexFlag(entry.local))
+      .sort((left, right) => connectionRank(left) - connectionRank(right));
     if (!secure.length) return [];
     return [{
       id: String(resource.clientIdentifier || ""),
@@ -898,9 +900,11 @@ function parsePlexServers(resources: Array<Record<string, unknown>>, accountToke
 }
 
 function connectionRank(connection: Record<string, unknown>): number {
-  if (!connection.local && !connection.relay) return 0;
-  if (connection.relay) return 1;
-  return 2;
+  return plexFlag(connection.relay) ? 1 : 0;
+}
+
+function plexFlag(value: unknown): boolean {
+  return value === true || value === 1 || value === "1" || value === "true";
 }
 
 function copyMediaHeaders(source: Headers): Headers {
