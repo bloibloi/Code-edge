@@ -10,12 +10,14 @@ From this directory:
 npm install
 npx wrangler secret put CLOUDFLARE_ACCOUNT_ID
 npx wrangler secret put CLOUDFLARE_API_TOKEN
+npx wrangler secret put PLEX_TOKEN
+npx wrangler secret put PLEX_SITE_PASSWORD
 npm run deploy
 ```
 
 The API token needs permission to create Cloudflare Stream Live Inputs for the account. Never commit either value.
 
-Plex does not require another manually copied token or password. The Worker starts Plex's PIN authorization flow, stores the resulting account token inside a per-browser Durable Object session, and proxies all Plex requests. The browser retains only an opaque session identifier. Signing out deletes the server-side session; otherwise it expires after 30 days.
+`PLEX_TOKEN` is the long-lived Plex account token and `PLEX_SITE_PASSWORD` protects the Media tab. Both must be Cloudflare Worker secrets, never plaintext variables or repository files. After a correct password, the browser receives only a random opaque session identifier. The Worker keeps Plex API access behind that 30-day server-side session and reads the Plex token directly from its secret on every request. Locking Media deletes the session immediately.
 
 After deployment:
 
@@ -31,7 +33,7 @@ After deployment:
 - `POST /v1/pair/join` with `{ "code": "123456" }`: claims the code once and returns the private WHIP URL to the iPhone.
 - `GET /v1/pair/status?token=...`: lets the Chromebook wait for the iPhone and returns WHEP playback only after the claim.
 - `GET /health`: health check.
-- `POST /v1/plex/auth/start` and `GET /v1/plex/auth/status`: Plex-hosted sign-in.
+- `POST /v1/plex/login`: verifies the website password with per-IP rate limiting and creates a 30-day session.
 - `/v1/plex/servers`, `/libraries`, `/library/:id/items`, `/item/:id`, and `/children/:id`: sanitized library metadata.
 - `/v1/plex/image` and `/v1/plex/stream/:id`: authenticated artwork and Direct Play/transcoded media proxying.
 
