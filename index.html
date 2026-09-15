@@ -8,11 +8,11 @@
   <meta name="referrer" content="no-referrer">
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; connect-src 'self' https://iphone-remote-pairing.liamlitchfeild.workers.dev https://*.cloudflarestream.com; frame-src https://*.cloudflarestream.com; media-src 'self' blob: https://iphone-remote-pairing.liamlitchfeild.workers.dev; img-src 'self' data: https://iphone-remote-pairing.liamlitchfeild.workers.dev; style-src 'self'; script-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'">
   <title>Remote Screen</title>
-  <link rel="stylesheet" href="./styles.css?v=20260915-plex-1">
+  <link rel="stylesheet" href="./styles.css?v=20260915-plex-dropdown-1">
   <script src="./config.js?v=20260915-3"></script>
   <script src="./app.js?v=20260915-plex-1" defer></script>
   <script src="./halloween.js?v=20260915-2" defer></script>
-  <script src="./media.js?v=20260915-1" defer></script>
+  <script src="./media.js?v=20260915-dropdown-1" defer></script>
 </head>
 <body>
   <div class="glow glow-a"></div><div class="glow glow-b"></div>
@@ -175,8 +175,8 @@
         <header class="media-header"><div><p class="eyebrow">PLEX MEDIA</p><h1>Your library, built in.</h1><p class="media-intro">Browse and play media without leaving Remote Screen.</p></div><div class="media-account"><span id="plexAccountName"></span><button class="secondary-button compact hidden" id="plexSignOut" type="button">Sign out</button></div></header>
         <section class="plex-connect" id="plexConnect"><div class="plex-mark" aria-hidden="true">▶</div><div><p class="eyebrow">ONE-TIME SETUP</p><h2>Connect your Plex account</h2><p>Sign in on Plex’s own website. This site never sees your password, and your Plex token stays behind the Cloudflare Worker.</p></div><button class="primary-button compact" id="plexConnectButton" type="button">Sign in with Plex</button></section>
         <div class="plex-app hidden" id="plexApp">
-          <div class="media-toolbar"><label for="plexServer">Server<select id="plexServer"></select></label><label for="plexLibrary">Library<select id="plexLibrary"><option>Loading libraries…</option></select></label><label class="media-search-label" for="plexSearch">Search<input id="plexSearch" type="search" placeholder="Search this library"></label></div>
-          <div class="media-message" id="plexMessage" role="status">Choose a library to begin.</div><div class="media-grid" id="plexGrid"></div>
+          <div class="media-toolbar"><label for="plexServer">Server<select id="plexServer"></select></label><label for="plexLibrary">Library<select id="plexLibrary"><option>Loading libraries…</option></select></label><label for="plexTitle">Movie or show<select id="plexTitle" disabled><option>Choose a library first</option></select></label><button class="primary-button compact media-title-action" id="plexOpenTitle" type="button" disabled>Open selected title</button></div>
+          <div class="media-message" id="plexMessage" role="status">Choose a library to begin.</div>
         </div>
       </div>
       <dialog class="media-dialog" id="plexDetails"><button class="dialog-close" id="plexDetailsClose" type="button" aria-label="Close details">×</button><div class="details-layout"><img id="plexDetailsPoster" alt=""><div class="details-copy"><p class="eyebrow" id="plexDetailsType">MEDIA</p><h2 id="plexDetailsTitle"></h2><p class="details-meta" id="plexDetailsMeta"></p><p class="details-summary" id="plexDetailsSummary"></p><div class="episode-controls hidden" id="plexEpisodeControls"><label for="plexSeason">Season<select id="plexSeason"></select></label><label for="plexEpisode">Episode<select id="plexEpisode"></select></label></div><button class="primary-button compact" id="plexPlayButton" type="button">Play</button></div></div><div class="media-player-wrap hidden" id="plexPlayerWrap"><video id="plexPlayer" controls playsinline preload="metadata"></video><p id="plexPlaybackNote"></p></div></dialog>
