@@ -5,7 +5,7 @@
   const SESSION_KEY = "remote-screen-plex-session";
   const el = Object.fromEntries([
     "plexConnect", "plexConnectButton", "plexApp", "plexAccountName", "plexSignOut", "plexServer",
-    "plexLibrary", "plexSearch", "plexMessage", "plexGrid", "plexDetails", "plexDetailsClose",
+    "plexLibrary", "plexTitle", "plexOpenTitle", "plexMessage", "plexDetails", "plexDetailsClose",
     "plexDetailsPoster", "plexDetailsType", "plexDetailsTitle", "plexDetailsMeta", "plexDetailsSummary",
     "plexEpisodeControls", "plexSeason", "plexEpisode", "plexPlayButton", "plexPlayerWrap", "plexPlayer",
     "plexPlaybackNote"
@@ -13,7 +13,6 @@
   if (!el.plexConnect) return;
 
   let session = localStorage.getItem(SESSION_KEY) || "";
-  let allItems = [];
   let selectedItem = null;
   let seasons = [];
   let authTimer = null;
@@ -118,36 +117,17 @@
   async function loadItems() {
     const key = el.plexLibrary.value;
     if (!key) return;
-    message("Loading your media…");
-    el.plexGrid.replaceChildren();
+    message("Loading title names…");
+    el.plexTitle.disabled = true;
+    el.plexOpenTitle.disabled = true;
+    el.plexTitle.replaceChildren(option("", "Loading titles…"));
     try {
       const data = await request(`/v1/plex/library/${encodeURIComponent(key)}/items`);
-      allItems = data.items || [];
-      renderItems();
+      const items = data.items || [];
+      el.plexTitle.replaceChildren(option("", "Choose a title…"), ...items.map((item) => option(item.ratingKey, [item.title, item.year].filter(Boolean).join(" · "))));
+      el.plexTitle.disabled = items.length === 0;
+      message(items.length ? `${items.length} title names ready. Full details and media load only after you choose one.` : "No titles were found in this library.", items.length === 0);
     } catch (error) { message(error.message, true); }
-  }
-
-  function renderItems() {
-    const query = el.plexSearch.value.trim().toLowerCase();
-    const items = allItems.filter((item) => item.title.toLowerCase().includes(query));
-    const fragment = document.createDocumentFragment();
-    items.forEach((item) => {
-      const card = document.createElement("button");
-      card.type = "button";
-      card.className = "media-card";
-      const poster = document.createElement("div");
-      poster.className = "media-card-poster";
-      if (item.thumb) {
-        const image = document.createElement("img"); image.loading = "lazy"; image.src = posterUrl(item.thumb); image.alt = ""; poster.append(image);
-      } else { const fallback = document.createElement("span"); fallback.textContent = "No artwork"; poster.append(fallback); }
-      const title = document.createElement("strong"); title.textContent = item.title;
-      const meta = document.createElement("small"); meta.textContent = [item.year, item.type === "show" ? "TV Show" : "Movie"].filter(Boolean).join(" · ");
-      card.append(poster, title, meta);
-      card.addEventListener("click", () => openDetails(item.ratingKey));
-      fragment.append(card);
-    });
-    el.plexGrid.replaceChildren(fragment);
-    message(`${items.length} title${items.length === 1 ? "" : "s"}`);
   }
 
   async function openDetails(ratingKey) {
@@ -211,12 +191,13 @@
   el.plexConnectButton.addEventListener("click", connect);
   el.plexServer.addEventListener("change", async () => { await request("/v1/plex/server", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ serverId: el.plexServer.value }) }); await loadLibraries(); });
   el.plexLibrary.addEventListener("change", loadItems);
-  el.plexSearch.addEventListener("input", renderItems);
+  el.plexTitle.addEventListener("change", () => { el.plexOpenTitle.disabled = !el.plexTitle.value; });
+  el.plexOpenTitle.addEventListener("click", () => { if (el.plexTitle.value) openDetails(el.plexTitle.value); });
   el.plexSeason.addEventListener("change", loadEpisodes);
   el.plexPlayButton.addEventListener("click", play);
   el.plexDetailsClose.addEventListener("click", () => el.plexDetails.close());
   el.plexDetails.addEventListener("close", () => { el.plexPlayer.pause(); el.plexPlayer.removeAttribute("src"); el.plexPlayer.load(); });
   el.plexDetails.addEventListener("click", (event) => { if (event.target === el.plexDetails) el.plexDetails.close(); });
-  el.plexSignOut.addEventListener("click", async () => { try { await request("/v1/plex/logout", { method: "POST" }); } catch {} session = ""; localStorage.removeItem(SESSION_KEY); allItems = []; el.plexGrid.replaceChildren(); resetConnect(); });
+  el.plexSignOut.addEventListener("click", async () => { try { await request("/v1/plex/logout", { method: "POST" }); } catch {} session = ""; localStorage.removeItem(SESSION_KEY); el.plexTitle.replaceChildren(option("", "Choose a library first")); resetConnect(); });
   restore();
 })();
