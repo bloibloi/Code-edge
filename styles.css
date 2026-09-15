@@ -55,6 +55,8 @@ button:focus-visible, input:focus-visible, a:focus-visible { outline: 2px solid 
 .desktop-empty small { max-width: 290px; color: var(--muted); font-size: 11px; line-height: 1.45; }
 .screen-icon { width: 58px; height: 44px; display: grid; place-items: center; margin-bottom: 7px; border: 2px solid #788ff2; border-radius: 7px; color: #aebcff; font-size: 20px; }
 .code-input { width: 100%; height: 52px; text-align: center; font-size: 21px; font-weight: 740; letter-spacing: .18em; }
+.field-hint { display: block; margin-top: 7px; color: #70798a; font-size: 9px; line-height: 1.4; }
+.spaced-label { margin-top: 14px; }
 .desktop-stage:fullscreen { border: 0; border-radius: 0; background: #000; }
 .desktop-stage:fullscreen video { max-height: 100vh; }
 .workspace { display: grid; grid-template-columns: minmax(0, 1fr) 355px; gap: 28px; padding-top: 30px; }
