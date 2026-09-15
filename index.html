@@ -42,13 +42,12 @@
         <aside class="side-panel">
           <section class="panel-section">
             <p class="eyebrow">START A SESSION</p><h2>Share with a code</h2>
-            <p class="section-copy">Choose a strong password, then share the code and password only with your intended viewer.</p>
-            <label for="desktopSharePassword">Session password</label>
-            <div class="url-row"><input id="desktopSharePassword" type="password" minlength="10" maxlength="128" autocomplete="new-password" placeholder="At least 10 characters"><button class="paste-button" id="generateDesktopPassword" type="button">Generate</button></div>
-            <small class="field-hint">Required. The password is never stored in readable form.</small>
+            <p class="section-copy">Create a temporary code and share it only with your intended viewers.</p>
+            <label class="hidden" for="desktopSharePassword">Session password</label>
+            <div class="url-row hidden"><input id="desktopSharePassword" type="password" maxlength="128" autocomplete="off"><button class="paste-button" id="generateDesktopPassword" type="button">Generate</button></div>
             <button class="primary-button" id="startDesktopButton" type="button">Choose screen to share</button>
             <div class="pairing-code hidden" id="desktopShareCode" aria-live="polite"><span id="desktopShareDigits">000 000</span><small id="desktopShareState">Waiting for a viewer</small></div>
-            <button class="secondary-button hidden" id="copyDesktopAccess" type="button">Copy code and password</button>
+            <button class="secondary-button hidden" id="copyDesktopAccess" type="button">Copy code</button>
             <button class="secondary-button hidden" id="stopDesktopButton" type="button">Stop sharing</button>
           </section>
           <section class="panel-section instructions">
@@ -85,12 +84,12 @@
             <p class="section-copy" id="desktopJoinCopy">Type the six-digit code displayed on the sharing computer.</p>
             <label for="desktopJoinCode">Desktop code</label>
             <input class="code-input" id="desktopJoinCode" type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="7" placeholder="000 000">
-            <label class="spaced-label" for="desktopJoinPassword">Session password</label>
-            <input id="desktopJoinPassword" type="password" minlength="10" maxlength="128" autocomplete="current-password" placeholder="Enter the password">
+            <label class="spaced-label hidden" for="desktopJoinPassword">Session password</label>
+            <input class="hidden" id="desktopJoinPassword" type="password" maxlength="128" autocomplete="off">
             <button class="primary-button" id="joinDesktopButton" type="button">Watch desktop</button>
             <button class="secondary-button hidden" id="leaveDesktopButton" type="button">Disconnect</button>
           </section>
-          <details class="panel-section privacy-note" open><summary>Private connection</summary><p>Up to five viewers can join with the correct code and password. The raw playback address stays inside the Worker, and WebRTC encrypts the video in transit through Cloudflare. The devices do not need to share Wi-Fi. Browser security prevents this page from controlling the other computer's operating system.</p></details>
+          <details class="panel-section privacy-note" open><summary>Temporary code-only access</summary><p>Up to five viewers can join with the temporary code. The raw playback address stays inside the Worker, and WebRTC encrypts the video in transit through Cloudflare. The devices do not need to share Wi-Fi. Anyone who receives the code can attempt to join, so share it carefully.</p></details>
         </aside>
       </div>
     </section>
@@ -109,7 +108,7 @@
           <div class="stage" id="stage">
             <div class="phone" id="phone">
               <div class="island" aria-hidden="true"></div><video id="screenVideo" autoplay muted playsinline></video><iframe id="streamFrame" class="hidden" title="iPhone live stream" allow="autoplay; encrypted-media; picture-in-picture" allowfullscreen></iframe>
-              <div class="empty-state" id="emptyState"><div class="broadcast-icon" aria-hidden="true"><svg viewBox="0 0 72 72"><rect x="24" y="9" width="24" height="54" rx="7"/><path d="M32 15h8M33 56h6"/><path class="waves" d="M15 25a15 15 0 0 0 0 22M8 18a25 25 0 0 0 0 36M57 25a15 15 0 0 1 0 22M64 18a25 25 0 0 1 0 36"/></svg></div><strong id="emptyTitle">Enter your iPhone details</strong><span id="emptyMessage">Use the join code and password created on the iPhone.</span><button class="small-button" id="emptyAction" type="button">Enter details</button></div>
+              <div class="empty-state" id="emptyState"><div class="broadcast-icon" aria-hidden="true"><svg viewBox="0 0 72 72"><rect x="24" y="9" width="24" height="54" rx="7"/><path d="M32 15h8M33 56h6"/><path class="waves" d="M15 25a15 15 0 0 0 0 22M8 18a25 25 0 0 0 0 36M57 25a15 15 0 0 1 0 22M64 18a25 25 0 0 1 0 36"/></svg></div><strong id="emptyTitle">Enter your iPhone code</strong><span id="emptyMessage">Use the temporary code created on the iPhone.</span><button class="small-button" id="emptyAction" type="button">Enter code</button></div>
               <div class="live-badge" id="liveBadge"><span></span> LIVE</div>
             </div>
           </div>
@@ -119,15 +118,14 @@
           <details class="panel-section iphone-host" id="iphoneHostPanel">
             <summary>Stream this iPhone with Moblin</summary>
             <p class="section-copy">Create a private session for up to five viewers, then send the screen through the free Moblin app.</p>
-            <label for="iphoneSharePassword">Create a session password</label>
-            <div class="url-row"><input id="iphoneSharePassword" type="password" minlength="10" maxlength="128" autocomplete="new-password" placeholder="At least 10 characters"><button class="paste-button" id="generateIphonePassword" type="button">Generate</button></div>
-            <small class="field-hint">Share the password separately. It is never stored in readable form.</small>
+            <label class="hidden" for="iphoneSharePassword">Session password</label>
+            <div class="url-row hidden"><input id="iphoneSharePassword" type="password" maxlength="128" autocomplete="off"><button class="paste-button" id="generateIphonePassword" type="button">Generate</button></div>
             <button class="primary-button" id="createIphoneButton" type="button">Create private stream</button>
             <div class="iphone-host-result hidden" id="iphoneHostResult">
               <div class="pairing-code"><span id="iphoneShareDigits">000 000</span><small>Join code · expires in 15 minutes</small></div>
               <button class="primary-button" id="openMoblinButton" type="button">Open in Moblin</button>
               <button class="secondary-button" id="copyMoblinUrlButton" type="button">Copy private URL manually</button>
-              <button class="secondary-button" id="copyIphoneAccessButton" type="button">Copy code and password</button>
+              <button class="secondary-button" id="copyIphoneAccessButton" type="button">Copy code</button>
               <button class="secondary-button" id="endIphoneSessionButton" type="button">End private session</button>
               <ol class="compact-steps">
                 <li>In Moblin, use <strong>Screen capture</strong> as the video source.</li>
@@ -138,18 +136,18 @@
             <p class="security-copy">The private publishing address is shown only on this device. Never send it to the viewer.</p>
           </details>
           <section class="panel-section">
-            <p class="eyebrow">WATCH IPHONE</p><h2>Enter both details</h2>
-            <p class="section-copy" id="iphoneJoinCopy">Create the stream on the iPhone, then enter its code and password here.</p>
+            <p class="eyebrow">WATCH IPHONE</p><h2>Enter the code</h2>
+            <p class="section-copy" id="iphoneJoinCopy">Create the stream on the iPhone, then enter its temporary code here.</p>
             <label for="iphoneJoinCode">iPhone join code</label>
             <input class="code-input" id="iphoneJoinCode" type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="7" placeholder="000 000">
-            <label class="spaced-label" for="iphoneJoinPassword">Session password</label>
-            <input id="iphoneJoinPassword" type="password" minlength="10" maxlength="128" autocomplete="current-password" placeholder="Enter the password">
+            <label class="spaced-label hidden" for="iphoneJoinPassword">Session password</label>
+            <input class="hidden" id="iphoneJoinPassword" type="password" maxlength="128" autocomplete="off">
             <button class="primary-button" id="joinIphoneButton" type="button">Watch iPhone</button>
             <button class="secondary-button hidden" id="leaveIphoneButton" type="button">Disconnect</button>
           </section>
-          <section class="panel-section instructions"><div class="section-title-row"><div><p class="eyebrow">HOW IT WORKS</p><h2>Three quick steps</h2></div><span class="latency-chip fast">WebRTC</span></div><ol><li><span>1</span><div><strong>Create on iPhone</strong><small>Open this page on the iPhone and select “Stream this iPhone with Moblin.”</small></div></li><li><span>2</span><div><strong>Start Moblin broadcast</strong><small>The website securely passes Moblin the temporary publishing address.</small></div></li><li><span>3</span><div><strong>Join on other devices</strong><small>Up to five viewers can enter the same six-digit code and password.</small></div></li></ol></section>
+          <section class="panel-section instructions"><div class="section-title-row"><div><p class="eyebrow">HOW IT WORKS</p><h2>Three quick steps</h2></div><span class="latency-chip fast">WebRTC</span></div><ol><li><span>1</span><div><strong>Create on iPhone</strong><small>Open this page on the iPhone and select “Stream this iPhone with Moblin.”</small></div></li><li><span>2</span><div><strong>Start Moblin broadcast</strong><small>The website securely passes Moblin the temporary publishing address.</small></div></li><li><span>3</span><div><strong>Join on other devices</strong><small>Up to five viewers can enter the same temporary six-digit code.</small></div></li></ol></section>
           <details class="panel-section manual-source"><summary>Use a playback URL instead</summary><p class="section-copy">For testing, paste a Cloudflare WHEP or iframe playback URL. It is stored only in this browser.</p><label for="playbackUrl">Cloudflare playback URL</label><div class="url-row"><input id="playbackUrl" type="url" inputmode="url" autocomplete="off" spellcheck="false" placeholder="https://customer-…/…/webRTC/play"><button class="paste-button" id="pasteButton" type="button">Paste</button></div><button class="primary-button" id="saveButton" type="button">Save and connect</button><button class="secondary-button hidden" id="forgetButton" type="button">Forget stream</button></details>
-          <details class="panel-section privacy-note"><summary>Privacy and compatibility</summary><p>The publishing URL stays on the iPhone. The playback URL stays inside the Worker and is never sent to viewers. Up to five short-lived viewer tokens are issued only after the correct code and password. Media is encrypted in transit with WebRTC. Cloudflare relays the stream, so this is not end-to-end encrypted from Cloudflare itself. Apple always confirms screen sharing; enable Focus to hide notifications. DRM-protected video can be blocked by iOS.</p></details>
+          <details class="panel-section privacy-note"><summary>Privacy and compatibility</summary><p>The publishing URL stays on the iPhone. The playback URL stays inside the Worker and is never sent to viewers. Up to five short-lived viewer tokens are issued to devices with the temporary code. Media is encrypted in transit with WebRTC. Cloudflare relays the stream, so this is not end-to-end encrypted from Cloudflare itself. Anyone with the code can attempt to join. Apple always confirms screen sharing; enable Focus to hide notifications. DRM-protected video can be blocked by iOS.</p></details>
         </aside>
       </div>
     </section>
