@@ -1,102 +1,151 @@
 import SwiftUI
 
 struct ContentView: View {
-    @State private var pairingCode = ""
-    @State private var status = "Enter the code shown on your Chromebook."
-    @State private var isPairing = false
-    @State private var isReady = SharedConfig.publishURL != nil
+    @State private var joinCode = SharedConfig.joinCode ?? ""
+    @State private var sessionPassword = SharedConfig.password ?? ""
+    @State private var status = SharedConfig.sessionIsActive
+        ? "Send both details to the person watching."
+        : "Create a private stream for your Chromebook."
+    @State private var isCreating = false
+    @State private var isReady = SharedConfig.sessionIsActive
 
     var body: some View {
         NavigationStack {
-            VStack(spacing: 24) {
-                Spacer()
+            ScrollView {
+                VStack(spacing: 24) {
+                    Image(systemName: isReady ? "iphone.radiowaves.left.and.right" : "lock.iphone")
+                        .font(.system(size: 56, weight: .light))
+                        .foregroundStyle(isReady ? .green : .indigo)
+                        .accessibilityHidden(true)
+                        .padding(.top, 34)
 
-                Image(systemName: isReady ? "iphone.radiowaves.left.and.right" : "rectangle.connected.to.line.below")
-                    .font(.system(size: 56, weight: .light))
-                    .foregroundStyle(isReady ? .green : .indigo)
-                    .accessibilityHidden(true)
+                    VStack(spacing: 8) {
+                        Text(isReady ? "Ready to stream" : "Stream your iPhone")
+                            .font(.title2.bold())
+                        Text(status)
+                            .font(.subheadline)
+                            .multilineTextAlignment(.center)
+                            .foregroundStyle(.secondary)
+                    }
 
-                VStack(spacing: 8) {
-                    Text(isReady ? "Ready to stream" : "Connect to Chromebook")
-                        .font(.title2.bold())
-                    Text(status)
+                    if isReady {
+                        VStack(spacing: 12) {
+                            credentialCard(title: "JOIN CODE", value: formattedCode)
+                            credentialCard(title: "PASSWORD", value: sessionPassword)
+                        }
+
+                        ShareLink(item: accessMessage) {
+                            Label("Share code and password", systemImage: "square.and.arrow.up")
+                                .frame(maxWidth: .infinity)
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.large)
+
+                        BroadcastPickerButton()
+                            .frame(height: 54)
+
+                        Button("End session", role: .destructive) {
+                            SharedConfig.clearSession()
+                            joinCode = ""
+                            sessionPassword = ""
+                            isReady = false
+                            status = "Create a private stream for your Chromebook."
+                        }
+                        .buttonStyle(.borderless)
+                    } else {
+                        Button(action: createStream) {
+                            HStack {
+                                if isCreating { ProgressView().tint(.white) }
+                                Text(isCreating ? "Creating secure stream…" : "Create private stream")
+                            }
+                            .frame(maxWidth: .infinity)
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .controlSize(.large)
+                        .disabled(isCreating)
+
+                        VStack(alignment: .leading, spacing: 11) {
+                            Label("A six-digit join code", systemImage: "number")
+                            Label("A separate secure password", systemImage: "key")
+                            Label("Only one viewer can join", systemImage: "person.crop.circle.badge.checkmark")
+                        }
                         .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(18)
+                        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 16))
+                    }
+
+                    Text("Enable Focus before sharing. Apple always asks you to confirm before the broadcast starts.")
+                        .font(.caption)
                         .multilineTextAlignment(.center)
                         .foregroundStyle(.secondary)
+                        .padding(.vertical, 12)
                 }
-
-                if !isReady {
-                    TextField("6-digit code", text: $pairingCode)
-                        .keyboardType(.numberPad)
-                        .textContentType(.oneTimeCode)
-                        .font(.system(.title2, design: .monospaced, weight: .semibold))
-                        .multilineTextAlignment(.center)
-                        .padding()
-                        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 16))
-                        .onChange(of: pairingCode) { newValue in
-                            pairingCode = String(newValue.filter(\.isNumber).prefix(6))
-                        }
-
-                    Button(action: pair) {
-                        HStack {
-                            if isPairing { ProgressView().tint(.white) }
-                            Text(isPairing ? "Connecting…" : "Connect")
-                        }
-                        .frame(maxWidth: .infinity)
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .controlSize(.large)
-                    .disabled(pairingCode.count != 6 || isPairing)
-                } else {
-                    BroadcastPickerButton()
-                        .frame(height: 54)
-
-                    Button("Disconnect", role: .destructive) {
-                        SharedConfig.clearSession()
-                        isReady = false
-                        pairingCode = ""
-                        status = "Enter the code shown on your Chromebook."
-                    }
-                    .buttonStyle(.borderless)
-                }
-
-                Spacer()
-
-                Text("For privacy, enable Focus before sharing. Apple always requires confirmation before a broadcast begins.")
-                    .font(.caption)
-                    .multilineTextAlignment(.center)
-                    .foregroundStyle(.secondary)
+                .padding(.horizontal, 24)
             }
-            .padding(24)
             .navigationTitle("iPhone Remote")
         }
     }
 
-    private func pair() {
+    private var formattedCode: String {
+        guard joinCode.count == 6 else { return joinCode }
+        return "\(joinCode.prefix(3)) \(joinCode.suffix(3))"
+    }
+
+    private var accessMessage: String {
+        "Watch my iPhone at https://bloibloi.github.io/Code-edge/#watch-iphone\nCode: \(joinCode)\nPassword: \(sessionPassword)"
+    }
+
+    private func credentialCard(title: String, value: String) -> some View {
+        VStack(spacing: 7) {
+            Text(title)
+                .font(.caption2.bold())
+                .tracking(1.5)
+                .foregroundStyle(.secondary)
+            Text(value)
+                .font(.system(.title2, design: .monospaced, weight: .bold))
+                .textSelection(.enabled)
+                .minimumScaleFactor(0.7)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(18)
+        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 16))
+    }
+
+    private func createStream() {
         guard let apiURL = SharedConfig.pairingAPIURL else {
-            status = "The pairing server has not been configured in this build."
+            status = "The connection server has not been configured in this build."
             return
         }
 
-        isPairing = true
-        status = "Connecting securely…"
+        let password = makePassword()
+        isCreating = true
+        status = "Creating your private stream…"
 
         Task {
             do {
-                let response = try await PairingClient.join(code: pairingCode, apiURL: apiURL)
-                SharedConfig.save(session: response)
+                let response = try await PairingClient.createStream(password: password, apiURL: apiURL)
+                SharedConfig.save(session: response, password: password)
                 await MainActor.run {
+                    joinCode = response.code
+                    sessionPassword = password
                     isReady = true
-                    isPairing = false
-                    status = "Tap Start Broadcast, then confirm iPhone Remote."
+                    isCreating = false
+                    status = "Enter both details on the Chromebook, then tap Start Broadcast."
                 }
             } catch {
                 await MainActor.run {
-                    isPairing = false
+                    isCreating = false
                     status = error.localizedDescription
                 }
             }
         }
     }
-}
 
+    private func makePassword() -> String {
+        let characters = Array("ABCDEFGHJKLMNPQRSTUVWXYZ23456789")
+        var generator = SystemRandomNumberGenerator()
+        return String((0..<10).compactMap { _ in characters.randomElement(using: &generator) })
+    }
+}
