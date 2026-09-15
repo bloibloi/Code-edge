@@ -4,7 +4,7 @@
   const API = String(window.IPHONE_REMOTE_API || "").replace(/\/$/, "");
   const SESSION_KEY = "remote-screen-plex-session";
   const el = Object.fromEntries([
-    "plexConnect", "plexConnectButton", "plexApp", "plexAccountName", "plexSignOut", "plexServer",
+    "plexConnect", "plexConnectButton", "plexLoginForm", "plexLoginMessage", "plexPassword", "plexApp", "plexAccountName", "plexSignOut", "plexServer",
     "plexLibrary", "plexTitle", "plexOpenTitle", "plexMessage", "plexDetails", "plexDetailsClose",
     "plexDetailsPoster", "plexDetailsType", "plexDetailsTitle", "plexDetailsMeta", "plexDetailsSummary",
     "plexEpisodeControls", "plexSeason", "plexEpisode", "plexPlayButton", "plexPlayerWrap", "plexPlayer",
@@ -15,7 +15,6 @@
   let session = localStorage.getItem(SESSION_KEY) || "";
   let selectedItem = null;
   let seasons = [];
-  let authTimer = null;
   let hlsPlayer = null;
   let hlsManifestUrl = "";
 
@@ -38,37 +37,20 @@
   }
 
   async function connect() {
-    const popup = window.open("about:blank", "plex-auth", "popup,width=700,height=760");
     el.plexConnectButton.disabled = true;
-    el.plexConnectButton.textContent = "Opening Plex…";
+    el.plexConnectButton.textContent = "Unlocking…";
+    el.plexLoginMessage.style.color = "";
     try {
-      const auth = await request("/v1/plex/auth/start", { method: "POST" });
+      const auth = await request("/v1/plex/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ password: el.plexPassword.value })
+      });
       session = auth.session;
       localStorage.setItem(SESSION_KEY, session);
-      if (popup) popup.location.href = auth.authUrl;
-      else window.open(auth.authUrl, "_blank", "noopener");
-      el.plexConnectButton.textContent = "Waiting for Plex…";
-      let attempts = 0;
-      clearInterval(authTimer);
-      authTimer = setInterval(async () => {
-        attempts += 1;
-        try {
-          const status = await request("/v1/plex/auth/status");
-          if (status.authenticated) {
-            clearInterval(authTimer);
-            if (popup && !popup.closed) popup.close();
-            await showApp(status);
-          } else if (attempts >= 120) {
-            clearInterval(authTimer);
-            throw new Error("Plex sign-in timed out. Try again.");
-          }
-        } catch (error) {
-          clearInterval(authTimer);
-          resetConnect(error.message);
-        }
-      }, 1500);
+      el.plexPassword.value = "";
+      await showApp(auth);
     } catch (error) {
-      if (popup && !popup.closed) popup.close();
       resetConnect(error.message);
     }
   }
@@ -78,11 +60,13 @@
     el.plexApp.classList.add("hidden");
     el.plexSignOut.classList.add("hidden");
     el.plexConnectButton.disabled = false;
-    el.plexConnectButton.textContent = error ? "Try Plex sign-in again" : "Sign in with Plex";
+    el.plexConnectButton.textContent = "Unlock Media";
     if (error) {
-      const paragraph = el.plexConnect.querySelector("p:last-child");
-      paragraph.textContent = error;
-      paragraph.style.color = "var(--red)";
+      el.plexLoginMessage.textContent = error;
+      el.plexLoginMessage.style.color = "var(--red)";
+    } else {
+      el.plexLoginMessage.textContent = "Enter the website password. Your Plex token stays securely inside the Cloudflare Worker and is never sent to this browser.";
+      el.plexLoginMessage.style.color = "";
     }
   }
 
@@ -255,7 +239,7 @@
     return values.filter(Boolean).join(" · ");
   }
 
-  el.plexConnectButton.addEventListener("click", connect);
+  el.plexLoginForm.addEventListener("submit", (event) => { event.preventDefault(); connect(); });
   el.plexServer.addEventListener("change", async () => { await request("/v1/plex/server", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ serverId: el.plexServer.value }) }); await loadLibraries(); });
   el.plexLibrary.addEventListener("change", loadItems);
   el.plexTitle.addEventListener("change", () => { el.plexOpenTitle.disabled = !el.plexTitle.value; });
