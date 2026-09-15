@@ -176,6 +176,8 @@ input::placeholder { color: #565f6e; }
 .plex-connect { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 22px; padding: 28px; border: 1px solid var(--line); border-radius: 20px; background: var(--panel); box-shadow: 0 24px 70px rgba(0,0,0,.35); }
 .plex-connect p:last-child { max-width: 650px; margin: 8px 0 0; color: var(--muted); font-size: 11px; line-height: 1.55; }
 .plex-mark { width: 54px; height: 54px; display: grid; place-items: center; border-radius: 15px; color: #17110a; background: #e5a00d; font-size: 20px; box-shadow: 0 12px 28px rgba(229,160,13,.16); }
+.plex-login-form { display: flex; align-items: stretch; gap: 10px; }
+.plex-login-form input { min-width: 210px; }
 .media-toolbar { display: grid; grid-template-columns: minmax(140px, .7fr) minmax(160px, .8fr) minmax(220px, 1.2fr) auto; gap: 14px; align-items: end; padding: 18px; border: 1px solid var(--line); border-radius: 17px; background: var(--panel); }
 .media-toolbar label, .episode-controls label { margin: 0; }
 select { width: 100%; height: 42px; margin-top: 7px; padding: 0 34px 0 11px; border: 1px solid var(--line); border-radius: 10px; color: #e8e0ea; background: #0d0911; font: inherit; font-size: 11px; }
@@ -202,5 +204,5 @@ select { width: 100%; height: 42px; margin-top: 7px; padding: 0 34px 0 11px; bor
 .media-player-wrap { padding: 0 32px 32px; }
 .media-player-wrap video { width: 100%; max-height: 65vh; display: block; border-radius: 13px; background: #000; }
 .media-player-wrap p { margin: 9px 0 0; color: var(--muted); font-size: 9px; }
-@media (max-width: 700px) { .mode-tabs { grid-template-columns: repeat(2, 1fr); } .plex-connect { grid-template-columns: auto 1fr; } .plex-connect .primary-button { grid-column: 1 / -1; width: 100%; } .media-toolbar { grid-template-columns: 1fr 1fr; } .media-title-action { width: 100%; } .details-layout { grid-template-columns: 105px 1fr; gap: 17px; padding: 22px; } .details-summary { grid-column: 1 / -1; } }
+@media (max-width: 700px) { .mode-tabs { grid-template-columns: repeat(2, 1fr); } .plex-connect { grid-template-columns: auto 1fr; } .plex-login-form { grid-column: 1 / -1; width: 100%; } .plex-login-form input { min-width: 0; flex: 1; } .media-toolbar { grid-template-columns: 1fr 1fr; } .media-title-action { width: 100%; } .details-layout { grid-template-columns: 105px 1fr; gap: 17px; padding: 22px; } .details-summary { grid-column: 1 / -1; } }
 @media (max-width: 470px) { .media-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; } .media-header { display: block; } .media-account { margin-top: 14px; } .details-layout { display: block; } .details-layout > img { width: 105px; margin-bottom: 18px; } .media-player-wrap { padding: 0 18px 22px; } }
