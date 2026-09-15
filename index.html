@@ -8,10 +8,10 @@
   <meta name="referrer" content="no-referrer">
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; connect-src 'self' https://iphone-remote-pairing.liamlitchfeild.workers.dev https://*.cloudflarestream.com; frame-src https://*.cloudflarestream.com; media-src 'self' blob:; img-src 'self' data:; style-src 'self'; script-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'">
   <title>Remote Screen</title>
-  <link rel="stylesheet" href="./styles.css?v=20260915-halloween-3">
+  <link rel="stylesheet" href="./styles.css?v=20260915-halloween-4">
   <script src="./config.js?v=20260915-3"></script>
   <script src="./app.js?v=20260915-3" defer></script>
-  <script src="./halloween.js?v=20260915-1" defer></script>
+  <script src="./halloween.js?v=20260915-2" defer></script>
 </head>
 <body>
   <div class="glow glow-a"></div><div class="glow glow-b"></div>
@@ -34,9 +34,16 @@
       <button class="mode-tab active" type="button" data-mode="watch-iphone"><svg viewBox="0 0 24 24"><rect x="7" y="2" width="10" height="20" rx="2.5"/><path d="M10 5h4M11 19h2"/></svg><span><strong>Watch iPhone</strong><small>Connect the app</small></span></button>
     </nav>
 
-    <aside class="halloween-fact-card" aria-labelledby="halloweenFactTitle">
+    <aside class="halloween-fact-card" id="halloweenFactCard" aria-labelledby="halloweenFactTitle">
       <img src="./assets/halloween-pumpkin.svg" alt="" aria-hidden="true">
-      <div><p class="eyebrow">HAUNTED KNOWLEDGE</p><h2 id="halloweenFactTitle">Halloween fact</h2><p id="halloweenFact">Jack-o’-lanterns were once commonly carved from turnips.</p></div>
+      <div class="halloween-fact-copy">
+        <p class="eyebrow">HAUNTED KNOWLEDGE</p><h2 id="halloweenFactTitle">Halloween fact</h2>
+        <p id="halloweenFact">Jack-o’-lanterns were once commonly carved from turnips.</p>
+        <div class="halloween-fact-actions">
+          <button id="closeHalloweenFact" type="button">Close</button>
+          <button id="disableHalloweenFacts" type="button">Don’t show facts</button>
+        </div>
+      </div>
     </aside>
 
     <section class="mode-page hidden" id="stream-desktop" data-page="stream-desktop">
