@@ -339,7 +339,8 @@ export default {
         response = json({
           ok: true,
           streamConfigured: Boolean(env.CLOUDFLARE_ACCOUNT_ID && env.CLOUDFLARE_API_TOKEN),
-          pairingStorageConfigured: Boolean(env.PAIRING_SESSION)
+          pairingStorageConfigured: Boolean(env.PAIRING_SESSION),
+          plexStorageConfigured: Boolean(env.PLEX_SESSION)
         });
       } else {
         response = json({ error: "Not found" }, 404);
