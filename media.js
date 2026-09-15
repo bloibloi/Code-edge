@@ -197,8 +197,15 @@
         const ready = new Promise((resolve, reject) => {
           const timeout = setTimeout(() => reject(new Error("The HLS player could not parse Plex’s playlist.")), 15000);
           hlsPlayer.once(window.Hls.Events.MANIFEST_PARSED, () => { clearTimeout(timeout); resolve(); });
-          hlsPlayer.once(window.Hls.Events.ERROR, (_event, data) => {
-            if (data.fatal) { clearTimeout(timeout); reject(new Error(data.response?.code ? `Plex playback failed (${data.response.code}).` : "Plex could not prepare a compatible stream.")); }
+          hlsPlayer.on(window.Hls.Events.ERROR, (_event, data) => {
+            if (!data.fatal) return;
+            if (data.type === window.Hls.ErrorTypes.MEDIA_ERROR) {
+              hlsPlayer.recoverMediaError();
+              return;
+            }
+            clearTimeout(timeout);
+            const status = data.response?.code ? ` HTTP ${data.response.code}` : "";
+            reject(new Error(`Plex HLS ${data.details || data.type || "playback error"}.${status}`));
           });
         });
         hlsPlayer.loadSource(hlsManifestUrl);
