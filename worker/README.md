@@ -1,6 +1,6 @@
 # Pairing Worker
 
-The Worker creates a short-lived LiveKit RTMP ingress and coordinates a six-digit viewing code. Session state is isolated in Durable Objects. Cloudflare Stream remains available for desktop WHIP relay and as a fallback until LiveKit is configured.
+The Worker creates a short-lived Cloudflare Stream Live Input and coordinates a one-time six-digit pairing code. Session state is isolated in Durable Objects.
 
 ## Configure later
 
@@ -10,13 +10,10 @@ From this directory:
 npm install
 npx wrangler secret put CLOUDFLARE_ACCOUNT_ID
 npx wrangler secret put CLOUDFLARE_API_TOKEN
-npx wrangler secret put LIVEKIT_URL
-npx wrangler secret put LIVEKIT_API_KEY
-npx wrangler secret put LIVEKIT_API_SECRET
 npm run deploy
 ```
 
-Copy the LiveKit URL, API key, and API secret from the LiveKit Cloud project settings. Never commit these values. The Cloudflare token still needs permission to create Stream Live Inputs for desktop relay.
+The API token needs permission to create Cloudflare Stream Live Inputs for the account. Never commit either value.
 
 After deployment:
 
@@ -33,4 +30,4 @@ After deployment:
 - `GET /v1/pair/status?token=...`: lets the Chromebook wait for the iPhone and returns WHEP playback only after the claim.
 - `GET /health`: health check.
 
-iPhone sessions expire after fifteen minutes and admit up to five viewers. LiveKit viewer tokens are subscribe-only, recording is not enabled, and each ingress is deleted when the session ends or expires.
+Sessions expire after five minutes. Live inputs are created with recording disabled.
