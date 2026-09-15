@@ -1,6 +1,6 @@
 # iPhone Remote
 
-A private, view-only iPhone screen viewer designed for a Chromebook. The iPhone publishes its screen from StreamChamp to Cloudflare Stream over RTMPS, and the browser receives it over WHEP/WebRTC.
+A private screen-sharing site with an integrated Plex media library. The iPhone publishes its screen from StreamChamp to Cloudflare Stream over RTMPS, and the browser receives it over WHEP/WebRTC.
 
 Live website: https://bloibloi.github.io/Code-edge/
 
@@ -50,6 +50,12 @@ See [worker/README.md](worker/README.md) and [ios/README.md](ios/README.md) for 
 - Private playback requests are authorized and proxied by the Worker, so the Cloudflare playback URL is not exposed to the viewer.
 - Cloudflare recording is disabled for sessions created by the Worker.
 - DRM-protected content may be blank or blocked. This project does not bypass iOS capture or DRM restrictions.
+
+## Plex Media tab
+
+The **Media** tab signs in through Plex's hosted authorization page. The frontend receives only an opaque Remote Screen session ID. The Plex token, secure server address, library API calls, artwork, and media bytes stay behind the Cloudflare Worker; no Plex credentials belong in this repository or in `config.js`.
+
+The player Direct Plays browser-friendly MP4/WebM files containing H.264, VP8, VP9, or AV1 video with AAC, MP3, Opus, or Vorbis audio. Other containers/codecs—including MKV, MPEG-2, and HEVC in browsers that do not advertise support—use Plex's universal transcode endpoint to produce H.264/AAC MP4. Transcoding requires the Plex Media Server to be online and powerful enough, and some remote-playback features may depend on the Plex account/server configuration. DRM is never bypassed.
 
 ## Local website preview
 
