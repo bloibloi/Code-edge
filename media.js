@@ -169,8 +169,9 @@
     const ratingKey = selectedItem?.type === "show" ? el.plexEpisode.value : selectedItem?.ratingKey;
     if (!ratingKey) return;
     el.plexPlayButton.disabled = true; el.plexPlayButton.textContent = "Preparing…";
+    let playback = null;
     try {
-      const playback = await request(`/v1/plex/playback/${encodeURIComponent(ratingKey)}`);
+      playback = await request(`/v1/plex/playback/${encodeURIComponent(ratingKey)}`);
       destroyHlsPlayer();
       let hlsReady = false;
       if (playback.mode === "hls" && window.Hls?.isSupported()) {
@@ -228,16 +229,35 @@
       el.plexPlayerWrap.scrollIntoView({ behavior: "smooth", block: "nearest" });
       await startPreparedVideo();
       el.plexPlaybackNote.textContent = `${playback.note} Playing muted—use the player’s volume control for sound.`;
-    } catch (error) { el.plexPlaybackNote.textContent = error.message; el.plexPlayerWrap.classList.remove("hidden"); }
+    } catch (error) {
+      if (playback?.fallbackUrl) {
+        try {
+          destroyHlsPlayer();
+          el.plexPlayer.src = playback.fallbackUrl;
+          el.plexPlayer.load();
+          el.plexPlayer.muted = true;
+          el.plexPlayerWrap.classList.remove("hidden");
+          el.plexPlaybackNote.textContent = "HLS was not compatible with this title. Plex is preparing an MP4 fallback…";
+          el.plexPlayerWrap.scrollIntoView({ behavior: "smooth", block: "nearest" });
+          await startPreparedVideo(90000, "Plex could not deliver the MP4 fallback within 90 seconds.");
+          el.plexPlaybackNote.textContent = "Playing Plex’s browser-compatible MP4 fallback muted—use the player’s volume control for sound.";
+        } catch (fallbackError) {
+          el.plexPlaybackNote.textContent = `Plex could not play this title. ${fallbackError.message}`;
+        }
+      } else {
+        el.plexPlaybackNote.textContent = error.message;
+        el.plexPlayerWrap.classList.remove("hidden");
+      }
+    }
     finally { el.plexPlayButton.disabled = false; el.plexPlayButton.textContent = selectedItem?.type === "show" ? "Play episode" : "Play"; }
   }
 
-  async function startPreparedVideo() {
+  async function startPreparedVideo(timeoutMs = 45000, timeoutMessage = "Plex loaded the playlist, but no video segments arrived within 45 seconds.") {
     let timer;
     try {
       await Promise.race([
         el.plexPlayer.play(),
-        new Promise((_resolve, reject) => { timer = setTimeout(() => reject(new Error("Plex loaded the playlist, but no video segments arrived within 45 seconds.")), 45000); })
+        new Promise((_resolve, reject) => { timer = setTimeout(() => reject(new Error(timeoutMessage)), timeoutMs); })
       ]);
     } finally { clearTimeout(timer); }
   }

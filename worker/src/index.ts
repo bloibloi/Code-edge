@@ -756,10 +756,12 @@ async function plexPlaybackInfo(request: Request, env: Env, ratingKey: string): 
   if (!part?.key) return json({ error: "No playable file was found." }, 404);
   const direct = browserDirectPlay(media || {});
   const session = bearerToken(request) || "";
+  const origin = new URL(request.url).origin;
+  const streamUrl = `${origin}/v1/plex/stream/${ratingKey}?session=${encodeURIComponent(session)}`;
+  const hlsUrl = `${origin}/v1/plex/hls/start/${ratingKey}?session=${encodeURIComponent(session)}`;
   return json({
-    url: direct
-      ? `${new URL(request.url).origin}/v1/plex/stream/${ratingKey}?session=${encodeURIComponent(session)}`
-      : `${new URL(request.url).origin}/v1/plex/hls/start/${ratingKey}?session=${encodeURIComponent(session)}`,
+    url: direct ? streamUrl : hlsUrl,
+    fallbackUrl: direct ? undefined : streamUrl,
     mode: direct ? "direct" : "hls",
     note: direct ? "Direct Play: the browser supports this container and codec." : "Plex is converting this file to browser-compatible H.264/AAC HLS."
   });
