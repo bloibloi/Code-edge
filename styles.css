@@ -26,8 +26,8 @@ button:focus-visible, input:focus-visible, a:focus-visible { outline: 2px solid 
 .glow-b { right: -12rem; bottom: -17rem; background: #ff5c18; opacity: .055; }
 .halloween-decor { position: fixed; z-index: 0; inset: 0; overflow: hidden; pointer-events: none; }
 .halloween-decor img { position: absolute; filter: drop-shadow(0 16px 28px rgba(0,0,0,.45)); user-select: none; }
-.decor-pumpkin { width: clamp(90px, 10vw, 145px); left: max(1vw, 8px); bottom: 3vh; opacity: .22; transform: rotate(-8deg); }
-.decor-ghost { width: clamp(76px, 8vw, 118px); right: max(2vw, 12px); top: 24vh; opacity: .18; transform: rotate(7deg); animation: ghost-float 5s ease-in-out infinite; }
+.decor-pumpkin { width: clamp(90px, 10vw, 145px); left: max(1vw, 8px); bottom: 3vh; opacity: .38; transform: rotate(-8deg); }
+.decor-ghost { width: clamp(76px, 8vw, 118px); right: max(2vw, 12px); top: 24vh; opacity: .3; transform: rotate(7deg); animation: ghost-float 5s ease-in-out infinite; }
 .shell { position: relative; width: min(1440px, 100%); min-height: 100vh; margin: auto; padding: 0 40px 36px; }
 .topbar { height: 82px; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--line); }
 .brand { display: inline-flex; align-items: center; gap: 11px; color: var(--text); text-decoration: none; font-weight: 740; letter-spacing: -.02em; }
@@ -153,7 +153,7 @@ input::placeholder { color: #565f6e; }
 .instructions li > span { border-color: rgba(255,132,40,.23); color: #ffc18a; background: rgba(255,108,24,.08); }
 .desktop-stage, .stage { border-color: rgba(255,139,48,.13); background-color: #0b0710; }
 .side-panel { box-shadow: 0 28px 80px rgba(0,0,0,.48), 0 0 45px rgba(107,35,145,.06); }
-.halloween-fact-card { position: relative; display: flex; align-items: center; gap: 17px; margin-top: 28px; padding: 17px 20px; overflow: hidden; border: 1px solid rgba(255,132,40,.2); border-radius: 16px; color: var(--text); background: linear-gradient(110deg, rgba(35,16,17,.94), rgba(18,10,22,.94)); box-shadow: 0 18px 48px rgba(0,0,0,.3); }
+.halloween-fact-card { position: relative; display: flex; align-items: center; gap: 17px; margin-top: 18px; padding: 17px 20px; overflow: hidden; border: 1px solid rgba(255,132,40,.2); border-radius: 16px; color: var(--text); background: linear-gradient(110deg, rgba(35,16,17,.94), rgba(18,10,22,.94)); box-shadow: 0 18px 48px rgba(0,0,0,.3); }
 .halloween-fact-card::after { content: ""; position: absolute; inset: 0; pointer-events: none; background: linear-gradient(90deg, rgba(255,111,22,.06), transparent 45%); }
 .halloween-fact-card img { position: relative; z-index: 1; flex: 0 0 auto; width: 64px; filter: drop-shadow(0 8px 15px rgba(0,0,0,.4)); }
 .halloween-fact-card div { position: relative; z-index: 1; }
@@ -162,5 +162,5 @@ input::placeholder { color: #565f6e; }
 @keyframes ghost-float { 50% { transform: translateY(-12px) rotate(3deg); } }
 @media (max-width: 940px) { .shell { padding-inline: 22px; } .workspace, .desktop-layout { grid-template-columns: 1fr; } .viewer-column { min-height: auto; } .stage { min-height: 610px; } }
 @media (max-width: 650px) { .mode-tabs { gap: 5px; padding: 5px; } .mode-tab { flex-direction: column; gap: 5px; padding: 10px 5px; text-align: center; } .mode-tab small { display: none; } .mode-tab svg { width: 21px; } }
-@media (max-width: 560px) { .shell { padding: 0 14px 24px; } .topbar { height: 68px; } .brand { font-size: 14px; } .brand::after { display: none; } .mode-page { padding-top: 22px; } .workspace { padding-top: 0; gap: 18px; } .desktop-layout { gap: 18px; } .viewer-header { min-height: 58px; } .viewer-actions { gap: 6px; } .icon-button { width: 35px; height: 35px; } .stage { min-height: 500px; margin-top: 13px; padding: 20px 10px; } .desktop-stage { min-height: 330px; margin-top: 13px; } .phone { width: min(246px, 73vw); border-radius: 36px; } .halloween-decor { display: none; } .halloween-fact-card { align-items: flex-start; padding: 15px; } .halloween-fact-card img { width: 48px; } }
+@media (max-width: 560px) { .shell { padding: 0 14px 24px; } .topbar { height: 68px; } .brand { font-size: 14px; } .brand::after { display: none; } .mode-page { padding-top: 22px; } .workspace { padding-top: 0; gap: 18px; } .desktop-layout { gap: 18px; } .viewer-header { min-height: 58px; } .viewer-actions { gap: 6px; } .icon-button { width: 35px; height: 35px; } .stage { min-height: 500px; margin-top: 13px; padding: 20px 10px; } .desktop-stage { min-height: 330px; margin-top: 13px; } .phone { width: min(246px, 73vw); border-radius: 36px; } .decor-pumpkin { width: 78px; left: -20px; bottom: 17vh; opacity: .3; } .decor-ghost { width: 66px; right: -12px; top: 20vh; opacity: .24; } .halloween-fact-card { align-items: flex-start; padding: 15px; } .halloween-fact-card img { width: 48px; } }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; scroll-behavior: auto !important; } }
