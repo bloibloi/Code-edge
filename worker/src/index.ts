@@ -24,11 +24,6 @@ type PlexState = {
 const PLEX_PRODUCT = "Remote Screen";
 const PLEX_CLIENT_ID = "remote-screen-bloibloi-github-pages";
 const PLEX_SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000;
-const STATIC_SITE_ORIGIN = "https://bloibloi.github.io/Code-edge/";
-const STATIC_SITE_FILES = new Set([
-  "index.html", "styles.css", "config.js", "app.js", "halloween.js", "media.js",
-  "assets/hls.min.js", "assets/HLS_LICENSE.txt", "assets/halloween-pumpkin.svg", "assets/halloween-ghost.svg"
-]);
 
 export class PlexSession extends DurableObject<Env> {
   async fetch(request: Request): Promise<Response> {
@@ -302,9 +297,7 @@ export default {
     const url = new URL(request.url);
     try {
       let response: Response;
-      if ((url.pathname === "/" || url.pathname === "/site" || url.pathname.startsWith("/site/")) && ["GET", "HEAD"].includes(request.method)) {
-        response = await staticSiteProxy(request);
-      } else if (url.pathname === "/v1/pair/create" && request.method === "POST") {
+      if (url.pathname === "/v1/pair/create" && request.method === "POST") {
         response = await createPairing(env);
       } else if (url.pathname === "/v1/pair/join" && request.method === "POST") {
         response = await joinPairing(request, env);
@@ -361,7 +354,7 @@ export default {
       } else if (url.pathname === "/health") {
         response = json({
           ok: true,
-          version: "static-site-proxy-1",
+          version: "plex-persistent-secret-2",
           streamConfigured: Boolean(env.CLOUDFLARE_ACCOUNT_ID && env.CLOUDFLARE_API_TOKEN),
           pairingStorageConfigured: Boolean(env.PAIRING_SESSION),
           plexStorageConfigured: Boolean(env.PLEX_SESSION),
@@ -372,7 +365,7 @@ export default {
       }
       const headers = new Headers(response.headers);
       Object.entries(cors).forEach(([key, value]) => headers.set(key, value));
-      if (!url.pathname.startsWith("/site/") && !url.pathname.startsWith("/v1/plex/stream/") && url.pathname !== "/v1/plex/image") headers.set("Cache-Control", "no-store");
+      if (!url.pathname.startsWith("/v1/plex/stream/") && url.pathname !== "/v1/plex/image") headers.set("Cache-Control", "no-store");
       return new Response(response.body, { status: response.status, headers });
     } catch (error) {
       console.error(error);
@@ -386,36 +379,6 @@ export default {
     }
   }
 } satisfies ExportedHandler<Env>;
-
-async function staticSiteProxy(request: Request): Promise<Response> {
-  const requestUrl = new URL(request.url);
-  if (requestUrl.pathname === "/" || requestUrl.pathname === "/site") {
-    return Response.redirect(`${requestUrl.origin}/site/${requestUrl.search}`, 302);
-  }
-  let file: string;
-  try { file = decodeURIComponent(requestUrl.pathname.slice("/site/".length)) || "index.html"; }
-  catch { return json({ error: "Invalid static file path." }, 400); }
-  if (!STATIC_SITE_FILES.has(file)) return json({ error: "Static file not found." }, 404);
-
-  const upstreamUrl = new URL(file, STATIC_SITE_ORIGIN);
-  upstreamUrl.search = requestUrl.search;
-  const upstream = await fetch(upstreamUrl.toString(), {
-    method: request.method,
-    cf: { cacheEverything: true, cacheTtl: file === "index.html" ? 0 : 300 }
-  });
-  if (!upstream.ok) return json({ error: "Static site source is unavailable." }, upstream.status);
-
-  const headers = new Headers();
-  ["Content-Type", "ETag", "Last-Modified"].forEach((name) => {
-    const value = upstream.headers.get(name); if (value) headers.set(name, value);
-  });
-  headers.set("Cache-Control", file === "index.html" ? "no-cache" : "public, max-age=300");
-  headers.set("Referrer-Policy", "no-referrer");
-  headers.set("X-Content-Type-Options", "nosniff");
-  headers.set("X-Code-Edge-Static-Proxy", "github-pages");
-  headers.set("X-Robots-Tag", "noindex, nofollow");
-  return new Response(request.method === "HEAD" ? null : upstream.body, { status: 200, headers });
-}
 
 async function createPairing(env: Env): Promise<Response> {
   const secret = randomToken();
