@@ -17,6 +17,7 @@
   let seasons = [];
   let authTimer = null;
   let hlsPlayer = null;
+  let hlsManifestUrl = "";
 
   async function request(path, options = {}) {
     const headers = new Headers(options.headers || {});
@@ -173,16 +174,36 @@
       const playback = await request(`/v1/plex/playback/${encodeURIComponent(ratingKey)}`);
       destroyHlsPlayer();
       if (playback.mode === "hls" && window.Hls?.isSupported()) {
+        el.plexPlaybackNote.textContent = "Plex is preparing a browser-compatible stream. This can take up to 90 seconds for a large file.";
+        el.plexPlayerWrap.classList.remove("hidden");
+        const controller = new AbortController();
+        const preparationTimeout = setTimeout(() => controller.abort(), 90000);
+        let manifestResponse;
+        try { manifestResponse = await fetch(playback.url, { signal: controller.signal }); }
+        catch (error) {
+          if (error.name === "AbortError") throw new Error("Plex did not return the stream within 90 seconds. Check the Plex Dashboard to confirm the server started transcoding.");
+          throw error;
+        } finally { clearTimeout(preparationTimeout); }
+        if (!manifestResponse.ok) {
+          const failureText = await manifestResponse.text();
+          let failure = {};
+          try { failure = JSON.parse(failureText); } catch { failure = { error: failureText }; }
+          throw new Error(failure.error || `Plex transcoder returned HTTP ${manifestResponse.status}.`);
+        }
+        const manifest = await manifestResponse.text();
+        if (!manifest.startsWith("#EXTM3U")) throw new Error("Plex returned an invalid HLS playlist.");
+        hlsManifestUrl = URL.createObjectURL(new Blob([manifest], { type: "application/vnd.apple.mpegurl" }));
         hlsPlayer = new window.Hls({ enableWorker: true, lowLatencyMode: false, maxBufferLength: 45 });
-        hlsPlayer.loadSource(playback.url);
-        hlsPlayer.attachMedia(el.plexPlayer);
-        await new Promise((resolve, reject) => {
-          const timeout = setTimeout(() => reject(new Error("Plex took too long to prepare this title.")), 30000);
+        const ready = new Promise((resolve, reject) => {
+          const timeout = setTimeout(() => reject(new Error("The HLS player could not parse Plex’s playlist.")), 15000);
           hlsPlayer.once(window.Hls.Events.MANIFEST_PARSED, () => { clearTimeout(timeout); resolve(); });
           hlsPlayer.once(window.Hls.Events.ERROR, (_event, data) => {
             if (data.fatal) { clearTimeout(timeout); reject(new Error(data.response?.code ? `Plex playback failed (${data.response.code}).` : "Plex could not prepare a compatible stream.")); }
           });
         });
+        hlsPlayer.loadSource(hlsManifestUrl);
+        hlsPlayer.attachMedia(el.plexPlayer);
+        await ready;
       } else {
         el.plexPlayer.src = playback.url;
       }
@@ -197,6 +218,7 @@
 
   function destroyHlsPlayer() {
     if (hlsPlayer) { hlsPlayer.destroy(); hlsPlayer = null; }
+    if (hlsManifestUrl) { URL.revokeObjectURL(hlsManifestUrl); hlsManifestUrl = ""; }
     el.plexPlayer.pause();
     el.plexPlayer.removeAttribute("src");
     el.plexPlayer.load();
