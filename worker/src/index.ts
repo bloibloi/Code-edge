@@ -121,7 +121,7 @@ export class PairingSession extends DurableObject<Env> {
     }
 
     if (url.pathname === "/iphone/join" && request.method === "POST") {
-      const genericError = "The code or password is incorrect, expired, or already used.";
+      const genericError = "The code is incorrect, expired, or has reached its viewer limit.";
       const viewers = current?.viewerSecrets || (current?.viewerSecret ? [current.viewerSecret] : []);
       if (expired || current.kind !== "iphone-host" || !["waiting", "claimed"].includes(current.state) ||
           !current.whepPlaybackURL || viewers.length >= MAX_IPHONE_VIEWERS || (current.failedAttempts || 0) >= 8) {
@@ -354,8 +354,8 @@ async function pairingStatus(url: URL, env: Env): Promise<Response> {
 async function createIPhoneSession(request: Request, env: Env): Promise<Response> {
   const body = await request.json<{ password?: string }>();
   const password = body.password || "";
-  if (password.length < 10 || password.length > 128) {
-    return json({ error: "Use a password between 10 and 128 characters." }, 400);
+  if (password.length > 128) {
+    return json({ error: "The session credential is invalid." }, 400);
   }
   const secret = randomToken();
   const passwordSalt = randomToken();
@@ -402,13 +402,13 @@ async function joinIPhoneSession(request: Request, env: Env): Promise<Response> 
   const body = await request.json<{ code?: string; password?: string }>();
   const code = (body.code || "").replace(/\D/g, "");
   if (!/^\d{6}$/.test(code)) return json({ error: "Enter the six-digit iPhone code." }, 400);
-  if (!body.password || body.password.length < 10 || body.password.length > 128) {
-    return json({ error: "Enter the iPhone session password." }, 400);
+  if ((body.password || "").length > 128) {
+    return json({ error: "The session credential is invalid." }, 400);
   }
   const viewerSecret = randomToken();
   const response = await env.PAIRING_SESSION.getByName(code).fetch("https://session/iphone/join", {
     method: "POST",
-    body: JSON.stringify({ viewerSecret, password: body.password })
+    body: JSON.stringify({ viewerSecret, password: body.password || "" })
   });
   const payload = await response.json<Record<string, unknown>>();
   if (!response.ok) return json(payload, response.status);
