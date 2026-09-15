@@ -5,11 +5,13 @@
   "compatibility_date": "2026-09-01",
   "durable_objects": {
     "bindings": [
-      { "name": "PAIRING_SESSION", "class_name": "PairingSession" }
+      { "name": "PAIRING_SESSION", "class_name": "PairingSession" },
+      { "name": "PLEX_SESSION", "class_name": "PlexSession" }
     ]
   },
   "migrations": [
-    { "tag": "v1", "new_sqlite_classes": ["PairingSession"] }
+    { "tag": "v1", "new_sqlite_classes": ["PairingSession"] },
+    { "tag": "v2", "new_sqlite_classes": ["PlexSession"] }
   ],
   "vars": {
     "ALLOWED_ORIGIN": "https://bloibloi.github.io"
