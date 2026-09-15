@@ -1,8 +1,3 @@
-npm warn Unknown env config "http-proxy". This will stop working in the next major version of npm.
-
-> iphone-remote-pairing@0.1.0 check
-> tsc --noEmit
-
 import { DurableObject } from "cloudflare:workers";
 
 export interface Env {
