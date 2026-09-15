@@ -8,12 +8,12 @@
   <meta name="referrer" content="no-referrer">
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; connect-src 'self' blob: https://iphone-remote-pairing.liamlitchfeild.workers.dev https://*.cloudflarestream.com; frame-src https://*.cloudflarestream.com; media-src 'self' blob: https://iphone-remote-pairing.liamlitchfeild.workers.dev; img-src 'self' data: https://iphone-remote-pairing.liamlitchfeild.workers.dev; style-src 'self'; script-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'">
   <title>Remote Screen</title>
-  <link rel="stylesheet" href="./styles.css?v=20260915-plex-lock-1">
-  <script src="./config.js?v=20260915-3"></script>
-  <script src="./app.js?v=20260915-plex-1" defer></script>
-  <script src="./halloween.js?v=20260915-2" defer></script>
+  <link rel="stylesheet" href="./styles.css?v=20260915-audit-1">
+  <script src="./config.js?v=20260915-audit-1"></script>
+  <script src="./app.js?v=20260915-audit-1" defer></script>
+  <script src="./halloween.js?v=20260915-audit-1" defer></script>
   <script src="./assets/hls.min.js?v=1.7.3" defer></script>
-  <script src="./media.js?v=20260915-plex-lock-1" defer></script>
+  <script src="./media.js?v=20260915-audit-1" defer></script>
 </head>
 <body>
   <div class="glow glow-a"></div><div class="glow glow-b"></div>
@@ -63,8 +63,6 @@
           <section class="panel-section">
             <p class="eyebrow">START A SESSION</p><h2>Share with a code</h2>
             <p class="section-copy">Create a temporary code and share it only with your intended viewers.</p>
-            <label class="hidden" for="desktopSharePassword">Session password</label>
-            <div class="url-row hidden"><input id="desktopSharePassword" type="password" maxlength="128" autocomplete="off"><button class="paste-button" id="generateDesktopPassword" type="button">Generate</button></div>
             <button class="primary-button" id="startDesktopButton" type="button">Choose screen to share</button>
             <div class="pairing-code hidden" id="desktopShareCode" aria-live="polite"><span id="desktopShareDigits">000 000</span><small id="desktopShareState">Waiting for a viewer</small></div>
             <button class="secondary-button hidden" id="copyDesktopAccess" type="button">Copy code</button>
@@ -104,8 +102,6 @@
             <p class="section-copy" id="desktopJoinCopy">Type the six-digit code displayed on the sharing computer.</p>
             <label for="desktopJoinCode">Desktop code</label>
             <input class="code-input" id="desktopJoinCode" type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="7" placeholder="000 000">
-            <label class="spaced-label hidden" for="desktopJoinPassword">Session password</label>
-            <input class="hidden" id="desktopJoinPassword" type="password" maxlength="128" autocomplete="off">
             <button class="primary-button" id="joinDesktopButton" type="button">Watch desktop</button>
             <button class="secondary-button hidden" id="leaveDesktopButton" type="button">Disconnect</button>
           </section>
@@ -138,8 +134,6 @@
           <details class="panel-section iphone-host" id="iphoneHostPanel">
             <summary>Stream this iPhone with StreamChamp</summary>
             <p class="section-copy">Create a private session for up to five viewers, then add its secure RTMPS details to StreamChamp.</p>
-            <label class="hidden" for="iphoneSharePassword">Session password</label>
-            <div class="url-row hidden"><input id="iphoneSharePassword" type="password" maxlength="128" autocomplete="off"><button class="paste-button" id="generateIphonePassword" type="button">Generate</button></div>
             <button class="primary-button" id="createIphoneButton" type="button">Create private stream</button>
             <div class="iphone-host-result hidden" id="iphoneHostResult">
               <div class="pairing-code"><span id="iphoneShareDigits">000 000</span><small>Join code · expires in 15 minutes</small></div>
@@ -160,8 +154,6 @@
             <p class="section-copy" id="iphoneJoinCopy">Create the StreamChamp broadcast on the iPhone, then enter its temporary code here.</p>
             <label for="iphoneJoinCode">iPhone join code</label>
             <input class="code-input" id="iphoneJoinCode" type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="7" placeholder="000 000">
-            <label class="spaced-label hidden" for="iphoneJoinPassword">Session password</label>
-            <input class="hidden" id="iphoneJoinPassword" type="password" maxlength="128" autocomplete="off">
             <button class="primary-button" id="joinIphoneButton" type="button">Watch iPhone</button>
             <button class="secondary-button hidden" id="leaveIphoneButton" type="button">Disconnect</button>
           </section>

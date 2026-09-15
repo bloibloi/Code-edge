@@ -92,18 +92,27 @@
 
   async function loadLibraries() {
     message("Loading libraries…");
+    el.plexLibrary.disabled = true;
+    el.plexTitle.disabled = true;
+    el.plexOpenTitle.disabled = true;
+    el.plexTitle.replaceChildren(option("", "Choose a library first"));
     try {
       const data = await request("/v1/plex/libraries");
       el.plexLibrary.replaceChildren(...data.libraries.map((library) => option(library.key, `${library.title} · ${library.type === "show" ? "TV Shows" : "Movies"}`)));
       if (!data.libraries.length) return message("No movie or TV libraries were found.", true);
+      el.plexLibrary.disabled = false;
       await loadItems();
-    } catch (error) { message(error.message, true); }
+    } catch (error) {
+      el.plexLibrary.replaceChildren(option("", "Libraries unavailable"));
+      message(error.message, true);
+    }
   }
 
   async function loadItems() {
     const key = el.plexLibrary.value;
     if (!key) return;
     message("Loading title names…");
+    selectedItem = null;
     el.plexTitle.disabled = true;
     el.plexOpenTitle.disabled = true;
     el.plexTitle.replaceChildren(option("", "Loading titles…"));
@@ -113,7 +122,10 @@
       el.plexTitle.replaceChildren(option("", "Choose a title…"), ...items.map((item) => option(item.ratingKey, [item.title, item.year].filter(Boolean).join(" · "))));
       el.plexTitle.disabled = items.length === 0;
       message(items.length ? `${items.length} title names ready. Full details and media load only after you choose one.` : "No titles were found in this library.", items.length === 0);
-    } catch (error) { message(error.message, true); }
+    } catch (error) {
+      el.plexTitle.replaceChildren(option("", "Titles unavailable"));
+      message(error.message, true);
+    }
   }
 
   async function openDetails(ratingKey) {
@@ -124,8 +136,11 @@
       el.plexDetailsTitle.textContent = selectedItem.title;
       el.plexDetailsMeta.textContent = detailMeta(selectedItem);
       el.plexDetailsSummary.textContent = selectedItem.summary || "No summary is available.";
-      el.plexDetailsPoster.src = posterUrl(selectedItem.thumb);
-      el.plexDetailsPoster.alt = selectedItem.thumb ? `${selectedItem.title} poster` : "";
+      const poster = posterUrl(selectedItem.thumb);
+      if (poster) el.plexDetailsPoster.src = poster;
+      else el.plexDetailsPoster.removeAttribute("src");
+      el.plexDetailsPoster.hidden = !poster;
+      el.plexDetailsPoster.alt = poster ? `${selectedItem.title} poster` : "";
       el.plexPlayer.pause(); el.plexPlayer.removeAttribute("src"); el.plexPlayer.load();
       el.plexPlayerWrap.classList.add("hidden");
       el.plexEpisodeControls.classList.toggle("hidden", selectedItem.type !== "show");
@@ -240,7 +255,14 @@
   }
 
   el.plexLoginForm.addEventListener("submit", (event) => { event.preventDefault(); connect(); });
-  el.plexServer.addEventListener("change", async () => { await request("/v1/plex/server", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ serverId: el.plexServer.value }) }); await loadLibraries(); });
+  el.plexServer.addEventListener("change", async () => {
+    el.plexServer.disabled = true;
+    try {
+      await request("/v1/plex/server", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ serverId: el.plexServer.value }) });
+      await loadLibraries();
+    } catch (error) { message(error.message, true); }
+    finally { el.plexServer.disabled = false; }
+  });
   el.plexLibrary.addEventListener("change", loadItems);
   el.plexTitle.addEventListener("change", () => { el.plexOpenTitle.disabled = !el.plexTitle.value; });
   el.plexOpenTitle.addEventListener("click", () => { if (el.plexTitle.value) openDetails(el.plexTitle.value); });

@@ -31,13 +31,10 @@ const elements = {
   fullscreenButton: document.querySelector("#fullscreenButton"),
   liveBadge: document.querySelector("#liveBadge"),
   iphoneJoinCode: document.querySelector("#iphoneJoinCode"),
-  iphoneJoinPassword: document.querySelector("#iphoneJoinPassword"),
   iphoneJoinCopy: document.querySelector("#iphoneJoinCopy"),
   joinIphoneButton: document.querySelector("#joinIphoneButton"),
   leaveIphoneButton: document.querySelector("#leaveIphoneButton"),
   iphoneHostPanel: document.querySelector("#iphoneHostPanel"),
-  iphoneSharePassword: document.querySelector("#iphoneSharePassword"),
-  generateIphonePassword: document.querySelector("#generateIphonePassword"),
   createIphoneButton: document.querySelector("#createIphoneButton"),
   iphoneHostResult: document.querySelector("#iphoneHostResult"),
   iphoneShareDigits: document.querySelector("#iphoneShareDigits"),
@@ -53,13 +50,10 @@ const elements = {
   desktopShareCode: document.querySelector("#desktopShareCode"),
   desktopShareDigits: document.querySelector("#desktopShareDigits"),
   desktopShareState: document.querySelector("#desktopShareState"),
-  desktopSharePassword: document.querySelector("#desktopSharePassword"),
-  generateDesktopPassword: document.querySelector("#generateDesktopPassword"),
   copyDesktopAccess: document.querySelector("#copyDesktopAccess"),
   startDesktopButton: document.querySelector("#startDesktopButton"),
   stopDesktopButton: document.querySelector("#stopDesktopButton"),
   desktopJoinCode: document.querySelector("#desktopJoinCode"),
-  desktopJoinPassword: document.querySelector("#desktopJoinPassword"),
   desktopJoinCopy: document.querySelector("#desktopJoinCopy"),
   joinDesktopButton: document.querySelector("#joinDesktopButton"),
   leaveDesktopButton: document.querySelector("#leaveDesktopButton"),
@@ -87,21 +81,13 @@ let desktopHostToken = "";
 let desktopViewerToken = "";
 let desktopConnectTimer = null;
 let desktopSessionCode = "";
-let desktopSessionPassword = "";
 let desktopPublishSessionUrl = "";
 let iphonePublisherToken = "";
 let iphonePublishUrl = "";
 let iphoneRtmpsUrl = "";
 let iphoneRtmpsStreamKey = "";
 let iphoneSessionCode = "";
-let iphoneSessionPassword = "";
 let iphoneViewerToken = "";
-
-function generateSecurePassword() {
-  const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789!@#$%";
-  const bytes = crypto.getRandomValues(new Uint8Array(20));
-  return [...bytes].map((value) => alphabet[value % alphabet.length]).join("");
-}
 
 async function createIphoneHostSession() {
   const password = "";
@@ -124,7 +110,6 @@ async function createIphoneHostSession() {
     iphoneRtmpsUrl = session.rtmpsURL;
     iphoneRtmpsStreamKey = session.rtmpsStreamKey;
     iphoneSessionCode = session.code;
-    iphoneSessionPassword = password;
     elements.iphoneShareDigits.textContent = `${session.code.slice(0, 3)} ${session.code.slice(3)}`;
     elements.iphoneHostResult.classList.remove("hidden");
     elements.createIphoneButton.classList.add("hidden");
@@ -146,13 +131,8 @@ async function endIphoneHostSession(notifyServer = true) {
   iphoneRtmpsUrl = "";
   iphoneRtmpsStreamKey = "";
   iphoneSessionCode = "";
-  iphoneSessionPassword = "";
   elements.iphoneHostResult.classList.add("hidden");
   elements.createIphoneButton.classList.remove("hidden");
-  elements.iphoneSharePassword.disabled = false;
-  elements.iphoneSharePassword.type = "password";
-  elements.iphoneSharePassword.value = "";
-  elements.generateIphonePassword.disabled = false;
   if (notifyServer && token) {
     try {
       await apiRequest("/v1/iphone/release", {
@@ -306,7 +286,6 @@ async function startDesktopShare() {
   }
   const password = "";
   await stopDesktopHost(true);
-  desktopSessionPassword = password;
   elements.startDesktopButton.disabled = true;
   elements.startDesktopButton.textContent = "Choose a screen…";
   try {
@@ -391,9 +370,6 @@ async function stopDesktopHost(notifyServer = true) {
   desktopHostToken = "";
   desktopPublishSessionUrl = "";
   desktopSessionCode = "";
-  desktopSessionPassword = "";
-  elements.desktopSharePassword.disabled = false;
-  elements.generateDesktopPassword.disabled = false;
   if (desktopHostPeer) desktopHostPeer.close();
   desktopHostPeer = null;
   const capture = desktopCapture;
@@ -681,10 +657,6 @@ document.querySelectorAll("[data-mode-link]").forEach((link) => link.addEventLis
 }));
 window.addEventListener("hashchange", () => setMode(location.hash.slice(1), false));
 elements.startDesktopButton.addEventListener("click", startDesktopShare);
-elements.generateDesktopPassword.addEventListener("click", () => {
-  elements.desktopSharePassword.value = generateSecurePassword();
-  showToast("Secure password generated");
-});
 elements.copyDesktopAccess.addEventListener("click", async () => {
   if (!desktopSessionCode) return;
   try {
@@ -704,9 +676,6 @@ elements.desktopJoinCode.addEventListener("input", () => {
 elements.desktopJoinCode.addEventListener("keydown", (event) => {
   if (event.key === "Enter") joinDesktopShare();
 });
-elements.desktopJoinPassword.addEventListener("keydown", (event) => {
-  if (event.key === "Enter") joinDesktopShare();
-});
 elements.desktopMuteButton.addEventListener("click", () => {
   elements.desktopWatchVideo.muted = !elements.desktopWatchVideo.muted;
   elements.desktopMuteButton.setAttribute("aria-pressed", String(elements.desktopWatchVideo.muted));
@@ -724,13 +693,6 @@ elements.desktopFullscreenButton.addEventListener("click", async () => {
 elements.joinIphoneButton.addEventListener("click", joinIphoneStream);
 elements.leaveIphoneButton.addEventListener("click", leaveIphoneStream);
 elements.createIphoneButton.addEventListener("click", createIphoneHostSession);
-elements.generateIphonePassword.addEventListener("click", () => {
-  elements.iphoneSharePassword.value = generateSecurePassword();
-  elements.iphoneSharePassword.type = "text";
-});
-elements.iphoneSharePassword.addEventListener("keydown", (event) => {
-  if (event.key === "Enter") createIphoneHostSession();
-});
 elements.copyStreamChampServerButton.addEventListener("click", async () => {
   if (!iphoneRtmpsUrl) return;
   await navigator.clipboard.writeText(iphoneRtmpsUrl);
@@ -756,9 +718,6 @@ elements.iphoneJoinCode.addEventListener("input", () => {
   elements.iphoneJoinCode.value = digits.length > 3 ? `${digits.slice(0, 3)} ${digits.slice(3)}` : digits;
 });
 elements.iphoneJoinCode.addEventListener("keydown", (event) => {
-  if (event.key === "Enter") joinIphoneStream();
-});
-elements.iphoneJoinPassword.addEventListener("keydown", (event) => {
   if (event.key === "Enter") joinIphoneStream();
 });
 elements.playbackUrl.addEventListener("keydown", (event) => {
@@ -831,6 +790,5 @@ if (savedUrl) {
   elements.forgetButton.classList.remove("hidden");
   elements.leaveIphoneButton.classList.remove("hidden");
 }
-elements.desktopSharePassword.value = generateSecurePassword();
 setMode(location.hash.slice(1) || "watch-iphone", false);
 connectPlayback();
