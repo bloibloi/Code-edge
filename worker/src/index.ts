@@ -24,9 +24,6 @@ type PlexState = {
 const PLEX_PRODUCT = "Remote Screen";
 const PLEX_CLIENT_ID = "remote-screen-bloibloi-github-pages";
 const PLEX_SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000;
-const HISTORY_SITE_ORIGIN = "https://sites.google.com";
-const HISTORY_SITE_PREFIX = "/view/history-embed";
-const HISTORY_SITE_HOME = `${HISTORY_SITE_ORIGIN}${HISTORY_SITE_PREFIX}/home`;
 
 export class PlexSession extends DurableObject<Env> {
   async fetch(request: Request): Promise<Response> {
@@ -97,8 +94,6 @@ type LiveInputResponse = {
 const SESSION_TTL_MS = 5 * 60 * 1000;
 const IPHONE_SESSION_TTL_MS = 15 * 60 * 1000;
 const MAX_IPHONE_VIEWERS = 5;
-const HISTORY_RATE_LIMIT = 300;
-const HISTORY_RATE_WINDOW_MS = 60 * 1000;
 
 export class PairingSession extends DurableObject<Env> {
   async fetch(request: Request): Promise<Response> {
@@ -106,16 +101,6 @@ export class PairingSession extends DurableObject<Env> {
     const body = request.method === "POST" ? await request.json<Record<string, string>>() : {};
     const current = await this.ctx.storage.get<StoredSession>("session");
     const expired = !current || current.expiresAt <= Date.now();
-
-    if (url.pathname === "/history-limit" && request.method === "POST") {
-      const now = Date.now();
-      const previous = await this.ctx.storage.get<{ count: number; windowStartedAt: number }>("historyRate");
-      const rate = !previous || now - previous.windowStartedAt >= HISTORY_RATE_WINDOW_MS
-        ? { count: 1, windowStartedAt: now }
-        : { count: previous.count + 1, windowStartedAt: previous.windowStartedAt };
-      await this.ctx.storage.put("historyRate", rate);
-      return json({ allowed: rate.count <= HISTORY_RATE_LIMIT });
-    }
 
     if (url.pathname === "/reserve" && request.method === "POST") {
       if (!expired) return json({ error: "Code already in use" }, 409);
@@ -312,9 +297,7 @@ export default {
     const url = new URL(request.url);
     try {
       let response: Response;
-      if ((url.pathname === "/history" || url.pathname.startsWith("/history/")) && ["GET", "HEAD"].includes(request.method)) {
-        response = await fixedHistoryProxy(request, env);
-      } else if (url.pathname === "/v1/pair/create" && request.method === "POST") {
+      if (url.pathname === "/v1/pair/create" && request.method === "POST") {
         response = await createPairing(env);
       } else if (url.pathname === "/v1/pair/join" && request.method === "POST") {
         response = await joinPairing(request, env);
@@ -371,7 +354,7 @@ export default {
       } else if (url.pathname === "/health") {
         response = json({
           ok: true,
-          version: "fixed-history-proxy-1",
+          version: "plex-persistent-secret-2",
           streamConfigured: Boolean(env.CLOUDFLARE_ACCOUNT_ID && env.CLOUDFLARE_API_TOKEN),
           pairingStorageConfigured: Boolean(env.PAIRING_SESSION),
           plexStorageConfigured: Boolean(env.PLEX_SESSION),
@@ -382,7 +365,7 @@ export default {
       }
       const headers = new Headers(response.headers);
       Object.entries(cors).forEach(([key, value]) => headers.set(key, value));
-      if (!url.pathname.startsWith("/history") && !url.pathname.startsWith("/v1/plex/stream/") && url.pathname !== "/v1/plex/image") headers.set("Cache-Control", "no-store");
+      if (!url.pathname.startsWith("/v1/plex/stream/") && url.pathname !== "/v1/plex/image") headers.set("Cache-Control", "no-store");
       return new Response(response.body, { status: response.status, headers });
     } catch (error) {
       console.error(error);
@@ -396,140 +379,6 @@ export default {
     }
   }
 } satisfies ExportedHandler<Env>;
-
-async function fixedHistoryProxy(request: Request, env: Env): Promise<Response> {
-  const clientKey = request.headers.get("CF-Connecting-IP") || "unknown";
-  const limiter = env.PAIRING_SESSION.getByName(`history-rate:${clientKey}`);
-  const rateLimit = await limiter.fetch("https://session/history-limit", {
-    method: "POST",
-    body: "{}"
-  });
-  const rateState = await rateLimit.json<{ allowed?: boolean }>();
-  if (!rateState.allowed) {
-    return new Response("Too many requests. Try again shortly.", {
-      status: 429,
-      headers: { "Content-Type": "text/plain; charset=utf-8", "Retry-After": "60" }
-    });
-  }
-
-  const requestUrl = new URL(request.url);
-  const upstreamUrl = historyUpstreamUrl(requestUrl);
-  if (!upstreamUrl) return json({ error: "Invalid history page path." }, 400);
-
-  const forwardedHeaders = new Headers();
-  for (const name of ["Accept", "Accept-Language", "If-Modified-Since", "If-None-Match"]) {
-    const value = request.headers.get(name);
-    if (value) forwardedHeaders.set(name, value);
-  }
-
-  let currentUpstreamUrl = upstreamUrl;
-  let upstream = await fetch(currentUpstreamUrl, {
-    method: request.method,
-    headers: forwardedHeaders,
-    redirect: "manual",
-    cf: { cacheEverything: true, cacheTtl: 300 }
-  });
-
-  for (let redirects = 0; isRedirect(upstream.status) && redirects < 3; redirects += 1) {
-    const location = upstream.headers.get("Location");
-    if (!location) break;
-    const nextUrl = new URL(location, currentUpstreamUrl);
-    if (!isApprovedHistoryUrl(nextUrl)) {
-      return json({ error: "The approved Google Site redirected outside its allowed path." }, 502);
-    }
-    currentUpstreamUrl = nextUrl;
-    upstream = await fetch(currentUpstreamUrl, {
-      method: request.method,
-      headers: forwardedHeaders,
-      redirect: "manual",
-      cf: { cacheEverything: true, cacheTtl: 300 }
-    });
-  }
-
-  if (isRedirect(upstream.status)) return json({ error: "The approved Google Site redirected too many times." }, 502);
-
-  const headers = new Headers();
-  for (const name of ["Content-Type", "ETag", "Last-Modified"]) {
-    const value = upstream.headers.get(name);
-    if (value) headers.set(name, value);
-  }
-  headers.set("Cache-Control", "public, max-age=60, s-maxage=300");
-  headers.set("Content-Security-Policy", "frame-ancestors https://bloibloi.github.io");
-  headers.set("Permissions-Policy", "camera=(), microphone=(), geolocation=()");
-  headers.set("Referrer-Policy", "no-referrer");
-  headers.set("X-Content-Type-Options", "nosniff");
-  headers.set("X-Code-Edge-Proxy", "fixed-history-site");
-  headers.set("X-Robots-Tag", "noindex, nofollow");
-
-  if (request.method === "HEAD" || upstream.status === 304) {
-    return new Response(null, { status: upstream.status, headers });
-  }
-
-  const contentType = upstream.headers.get("Content-Type") || "";
-  if (!contentType.includes("text/html")) {
-    return new Response(upstream.body, { status: upstream.status, headers });
-  }
-
-  const workerOrigin = requestUrl.origin;
-  const rewriteAttribute = (attribute: "href" | "src" | "action") => ({
-    element(element: Element) {
-      const value = element.getAttribute(attribute);
-      if (!value) return;
-      const rewritten = historyProxyUrl(value, workerOrigin);
-      if (rewritten) element.setAttribute(attribute, rewritten);
-    }
-  });
-
-  const response = new Response(upstream.body, { status: upstream.status, headers });
-  return new HTMLRewriter()
-    .on("base[href]", { element(element) { element.setAttribute("href", `${workerOrigin}/history/`); } })
-    .on("a[href]", rewriteAttribute("href"))
-    .on("link[href]", rewriteAttribute("href"))
-    .on("iframe[src]", rewriteAttribute("src"))
-    .on("form[action]", rewriteAttribute("action"))
-    .transform(response);
-}
-
-function historyUpstreamUrl(requestUrl: URL): URL | null {
-  const rawPath = requestUrl.pathname === "/history" || requestUrl.pathname === "/history/"
-    ? "home"
-    : requestUrl.pathname.slice("/history/".length);
-  const segments: string[] = [];
-  try {
-    for (const rawSegment of rawPath.split("/")) {
-      const segment = decodeURIComponent(rawSegment);
-      if (!segment || segment === "." || segment === ".." || /[\\/\0]/.test(segment)) return null;
-      segments.push(encodeURIComponent(segment));
-    }
-  } catch {
-    return null;
-  }
-  const upstream = new URL(`${HISTORY_SITE_ORIGIN}${HISTORY_SITE_PREFIX}/${segments.join("/")}`);
-  upstream.search = requestUrl.search;
-  return upstream;
-}
-
-function historyProxyUrl(value: string, workerOrigin: string): string | null {
-  if (/^(?:#|mailto:|tel:|javascript:|data:|blob:)/i.test(value)) return null;
-  let target: URL;
-  try {
-    target = new URL(value, HISTORY_SITE_HOME);
-  } catch {
-    return null;
-  }
-  if (!isApprovedHistoryUrl(target)) return null;
-  const suffix = target.pathname.slice(HISTORY_SITE_PREFIX.length) || "/home";
-  return `${workerOrigin}/history${suffix}${target.search}${target.hash}`;
-}
-
-function isApprovedHistoryUrl(url: URL): boolean {
-  return url.origin === HISTORY_SITE_ORIGIN &&
-    (url.pathname === HISTORY_SITE_PREFIX || url.pathname.startsWith(`${HISTORY_SITE_PREFIX}/`));
-}
-
-function isRedirect(status: number): boolean {
-  return [301, 302, 303, 307, 308].includes(status);
-}
 
 async function createPairing(env: Env): Promise<Response> {
   const secret = randomToken();

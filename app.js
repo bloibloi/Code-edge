@@ -157,7 +157,6 @@ function setMode(mode, updateHash = true) {
   if (mode === "stream-desktop") setStatus(desktopCapture ? "live" : "idle", desktopCapture ? "Sharing desktop" : "Ready to share");
   else if (mode === "watch-desktop") setStatus(desktopViewerPeer?.connectionState === "connected" ? "live" : "idle", desktopViewerPeer ? "Connecting desktop" : "Enter a code");
   else if (mode === "media") setStatus("idle", "Media library");
-  else if (mode === "history") setStatus("idle", "History site");
   else if (peer?.connectionState === "connected") setStatus("live", "Live");
   else setStatus(getSavedUrl() ? "waiting" : "idle", getSavedUrl() ? "Waiting for iPhone" : "Ready");
 }
