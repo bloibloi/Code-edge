@@ -173,6 +173,7 @@
     try {
       const playback = await request(`/v1/plex/playback/${encodeURIComponent(ratingKey)}`);
       destroyHlsPlayer();
+      let hlsReady = false;
       if (playback.mode === "hls" && window.Hls?.isSupported()) {
         el.plexPlaybackNote.textContent = "Plex is preparing a browser-compatible stream. This can take up to 90 seconds for a large file.";
         el.plexPlayerWrap.classList.remove("hidden");
@@ -196,16 +197,17 @@
         hlsPlayer = new window.Hls({ enableWorker: true, lowLatencyMode: false, maxBufferLength: 45 });
         const ready = new Promise((resolve, reject) => {
           const timeout = setTimeout(() => reject(new Error("The HLS player could not parse Plex’s playlist.")), 15000);
-          hlsPlayer.once(window.Hls.Events.MANIFEST_PARSED, () => { clearTimeout(timeout); resolve(); });
+          hlsPlayer.once(window.Hls.Events.MANIFEST_PARSED, () => { hlsReady = true; clearTimeout(timeout); resolve(); });
           hlsPlayer.on(window.Hls.Events.ERROR, (_event, data) => {
             if (!data.fatal) return;
             if (data.type === window.Hls.ErrorTypes.MEDIA_ERROR) {
               hlsPlayer.recoverMediaError();
               return;
             }
-            clearTimeout(timeout);
             const status = data.response?.code ? ` HTTP ${data.response.code}` : "";
-            reject(new Error(`Plex HLS ${data.details || data.type || "playback error"}.${status}`));
+            const detail = `Plex HLS ${data.details || data.type || "playback error"}.${status}`;
+            if (!hlsReady) { clearTimeout(timeout); reject(new Error(detail)); }
+            else el.plexPlaybackNote.textContent = detail;
           });
         });
         hlsPlayer.loadSource(hlsManifestUrl);
@@ -217,10 +219,23 @@
       el.plexPlaybackNote.textContent = playback.note;
       el.plexPlayerWrap.classList.remove("hidden");
       if (playback.mode !== "hls") el.plexPlayer.load();
-      el.plexPlaybackNote.textContent = `${playback.note} Press Play in the player.`;
+      el.plexPlayer.muted = true;
+      el.plexPlaybackNote.textContent = `${playback.note} Starting playback muted…`;
       el.plexPlayerWrap.scrollIntoView({ behavior: "smooth", block: "nearest" });
+      await startPreparedVideo();
+      el.plexPlaybackNote.textContent = `${playback.note} Playing muted—use the player’s volume control for sound.`;
     } catch (error) { el.plexPlaybackNote.textContent = error.message; el.plexPlayerWrap.classList.remove("hidden"); }
     finally { el.plexPlayButton.disabled = false; el.plexPlayButton.textContent = selectedItem?.type === "show" ? "Play episode" : "Play"; }
+  }
+
+  async function startPreparedVideo() {
+    let timer;
+    try {
+      await Promise.race([
+        el.plexPlayer.play(),
+        new Promise((_resolve, reject) => { timer = setTimeout(() => reject(new Error("Plex loaded the playlist, but no video segments arrived within 45 seconds.")), 45000); })
+      ]);
+    } finally { clearTimeout(timer); }
   }
 
   function destroyHlsPlayer() {
