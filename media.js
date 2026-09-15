@@ -16,6 +16,7 @@
   let selectedItem = null;
   let seasons = [];
   let authTimer = null;
+  let hlsPlayer = null;
 
   async function request(path, options = {}) {
     const headers = new Headers(options.headers || {});
@@ -170,13 +171,35 @@
     el.plexPlayButton.disabled = true; el.plexPlayButton.textContent = "Preparing…";
     try {
       const playback = await request(`/v1/plex/playback/${encodeURIComponent(ratingKey)}`);
-      el.plexPlayer.src = playback.url;
+      destroyHlsPlayer();
+      if (playback.mode === "hls" && window.Hls?.isSupported()) {
+        hlsPlayer = new window.Hls({ enableWorker: true, lowLatencyMode: false, maxBufferLength: 45 });
+        hlsPlayer.loadSource(playback.url);
+        hlsPlayer.attachMedia(el.plexPlayer);
+        await new Promise((resolve, reject) => {
+          const timeout = setTimeout(() => reject(new Error("Plex took too long to prepare this title.")), 30000);
+          hlsPlayer.once(window.Hls.Events.MANIFEST_PARSED, () => { clearTimeout(timeout); resolve(); });
+          hlsPlayer.once(window.Hls.Events.ERROR, (_event, data) => {
+            if (data.fatal) { clearTimeout(timeout); reject(new Error(data.response?.code ? `Plex playback failed (${data.response.code}).` : "Plex could not prepare a compatible stream.")); }
+          });
+        });
+      } else {
+        el.plexPlayer.src = playback.url;
+      }
       el.plexPlaybackNote.textContent = playback.note;
       el.plexPlayerWrap.classList.remove("hidden");
-      await el.plexPlayer.play();
+      if (playback.mode !== "hls") el.plexPlayer.load();
+      el.plexPlaybackNote.textContent = `${playback.note} Press Play in the player.`;
       el.plexPlayerWrap.scrollIntoView({ behavior: "smooth", block: "nearest" });
     } catch (error) { el.plexPlaybackNote.textContent = error.message; el.plexPlayerWrap.classList.remove("hidden"); }
     finally { el.plexPlayButton.disabled = false; el.plexPlayButton.textContent = selectedItem?.type === "show" ? "Play episode" : "Play"; }
+  }
+
+  function destroyHlsPlayer() {
+    if (hlsPlayer) { hlsPlayer.destroy(); hlsPlayer = null; }
+    el.plexPlayer.pause();
+    el.plexPlayer.removeAttribute("src");
+    el.plexPlayer.load();
   }
 
   function option(value, label) { const node = document.createElement("option"); node.value = value; node.textContent = label; return node; }
@@ -196,7 +219,7 @@
   el.plexSeason.addEventListener("change", loadEpisodes);
   el.plexPlayButton.addEventListener("click", play);
   el.plexDetailsClose.addEventListener("click", () => el.plexDetails.close());
-  el.plexDetails.addEventListener("close", () => { el.plexPlayer.pause(); el.plexPlayer.removeAttribute("src"); el.plexPlayer.load(); });
+  el.plexDetails.addEventListener("close", destroyHlsPlayer);
   el.plexDetails.addEventListener("click", (event) => { if (event.target === el.plexDetails) el.plexDetails.close(); });
   el.plexSignOut.addEventListener("click", async () => { try { await request("/v1/plex/logout", { method: "POST" }); } catch {} session = ""; localStorage.removeItem(SESSION_KEY); el.plexTitle.replaceChildren(option("", "Choose a library first")); resetConnect(); });
   restore();
