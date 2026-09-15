@@ -36,5 +36,6 @@ After deployment:
 - `POST /v1/plex/login`: verifies the website password with per-IP rate limiting and creates a 30-day session.
 - `/v1/plex/servers`, `/libraries`, `/library/:id/items`, `/item/:id`, and `/children/:id`: sanitized library metadata.
 - `/v1/plex/image` and `/v1/plex/stream/:id`: authenticated artwork and Direct Play/transcoded media proxying.
+- `GET /history[/page]`: proxies only the public Google Site at `https://sites.google.com/view/history-embed/`; it never accepts a destination URL.
 
 Sessions expire after five minutes. Live inputs are created with recording disabled.
