@@ -3,7 +3,6 @@
 const STORAGE_KEY = "iphone-screen-playback-url";
 const LEGACY_STORAGE_KEY = "iphone-screen-whep-url";
 const RETRY_DELAY = 5000;
-const PAIR_POLL_DELAY = 1500;
 const PAIRING_API = String(window.IPHONE_REMOTE_API || "").replace(/\/$/, "");
 
 const elements = {
@@ -26,12 +25,11 @@ const elements = {
   fitButton: document.querySelector("#fitButton"),
   fullscreenButton: document.querySelector("#fullscreenButton"),
   liveBadge: document.querySelector("#liveBadge"),
-  pairButton: document.querySelector("#pairButton"),
-  cancelPairButton: document.querySelector("#cancelPairButton"),
-  pairingCode: document.querySelector("#pairingCode"),
-  pairingDigits: document.querySelector("#pairingDigits"),
-  pairingTimer: document.querySelector("#pairingTimer"),
-  pairingCopy: document.querySelector("#pairingCopy"),
+  iphoneJoinCode: document.querySelector("#iphoneJoinCode"),
+  iphoneJoinPassword: document.querySelector("#iphoneJoinPassword"),
+  iphoneJoinCopy: document.querySelector("#iphoneJoinCopy"),
+  joinIphoneButton: document.querySelector("#joinIphoneButton"),
+  leaveIphoneButton: document.querySelector("#leaveIphoneButton"),
   modeTabs: [...document.querySelectorAll("[data-mode]")],
   modePages: [...document.querySelectorAll("[data-page]")],
   desktopPreview: document.querySelector("#desktopPreview"),
@@ -66,10 +64,6 @@ let stoppedByUser = false;
 let connectionAttempt = 0;
 let toastTimer = null;
 let playbackMode = "none";
-let pairingToken = "";
-let pairingExpiresAt = 0;
-let pairingTimer = null;
-let pairingPollTimer = null;
 let activeMode = "watch-iphone";
 let desktopHostPeer = null;
 let desktopViewerPeer = null;
@@ -122,88 +116,6 @@ function showToast(message) {
   toastTimer = setTimeout(() => elements.toast.classList.remove("visible"), 1800);
 }
 
-function stopPairing(reset = true) {
-  clearInterval(pairingTimer);
-  clearTimeout(pairingPollTimer);
-  pairingTimer = null;
-  pairingPollTimer = null;
-  pairingToken = "";
-  pairingExpiresAt = 0;
-  elements.pairButton.disabled = false;
-  elements.pairButton.textContent = "Generate pairing code";
-  elements.cancelPairButton.classList.add("hidden");
-  if (reset) {
-    elements.pairingCode.classList.add("hidden");
-    elements.pairingCopy.textContent = "Generate a private code, enter it in the iPhone Remote app, then start the broadcast.";
-  }
-}
-
-function updatePairingCountdown() {
-  const seconds = Math.max(0, Math.ceil((pairingExpiresAt - Date.now()) / 1000));
-  const minutes = Math.floor(seconds / 60);
-  elements.pairingTimer.textContent = `Expires in ${minutes}:${String(seconds % 60).padStart(2, "0")}`;
-  if (seconds === 0) {
-    stopPairing(false);
-    elements.pairingTimer.textContent = "Code expired";
-    elements.pairingCopy.textContent = "Generate a new code to try again.";
-  }
-}
-
-async function generatePairingCode() {
-  if (!PAIRING_API) {
-    showToast("Pairing server is not configured yet");
-    return;
-  }
-  stopPairing();
-  elements.pairButton.disabled = true;
-  elements.pairButton.textContent = "Creating secure session…";
-  try {
-    const response = await fetch(`${PAIRING_API}/v1/pair/create`, { method: "POST" });
-    const data = await response.json();
-    if (!response.ok) throw new Error(data.error || "Could not create a pairing code");
-    pairingToken = data.sessionToken;
-    pairingExpiresAt = Date.parse(data.expiresAt);
-    elements.pairingDigits.textContent = `${data.code.slice(0, 3)} ${data.code.slice(3)}`;
-    elements.pairingCode.classList.remove("hidden");
-    elements.cancelPairButton.classList.remove("hidden");
-    elements.pairButton.textContent = "Waiting for iPhone…";
-    elements.pairingCopy.textContent = "Enter this code in the iPhone Remote app.";
-    updatePairingCountdown();
-    pairingTimer = setInterval(updatePairingCountdown, 1000);
-    pollPairingStatus();
-  } catch (error) {
-    stopPairing();
-    showToast(error.message || "Pairing service unavailable");
-  }
-}
-
-async function pollPairingStatus() {
-  if (!pairingToken || Date.now() >= pairingExpiresAt) return;
-  try {
-    const response = await fetch(`${PAIRING_API}/v1/pair/status?token=${encodeURIComponent(pairingToken)}`);
-    const data = await response.json();
-    if (!response.ok) throw new Error(data.error || "Pairing expired");
-    if (data.paired && classifyUrl(data.playbackURL) === "whep") {
-      localStorage.setItem(STORAGE_KEY, data.playbackURL);
-      localStorage.removeItem(LEGACY_STORAGE_KEY);
-      elements.playbackUrl.value = data.playbackURL;
-      elements.forgetButton.classList.remove("hidden");
-      stopPairing(false);
-      elements.pairingTimer.textContent = "iPhone connected";
-      elements.pairingCopy.textContent = "Paired. Start the broadcast on your iPhone.";
-      showToast("iPhone paired");
-      await connectPlayback();
-      return;
-    }
-  } catch (error) {
-    stopPairing(false);
-    elements.pairingTimer.textContent = "Pairing ended";
-    elements.pairingCopy.textContent = error.message || "Generate a new code to try again.";
-    return;
-  }
-  pairingPollTimer = setTimeout(pollPairingStatus, PAIR_POLL_DELAY);
-}
-
 function getSavedUrl() {
   return localStorage.getItem(STORAGE_KEY)?.trim()
     || localStorage.getItem(LEGACY_STORAGE_KEY)?.trim()
@@ -244,6 +156,66 @@ async function apiRequest(path, options = {}) {
   const data = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(data.error || `Connection server returned ${response.status}`);
   return data;
+}
+
+async function joinIphoneStream() {
+  const code = elements.iphoneJoinCode.value.replace(/\D/g, "");
+  const password = elements.iphoneJoinPassword.value;
+  if (code.length !== 6) {
+    showToast("Enter the six-digit iPhone code");
+    elements.iphoneJoinCode.focus();
+    return;
+  }
+  if (password.length < 8) {
+    showToast("Enter the iPhone session password");
+    elements.iphoneJoinPassword.focus();
+    return;
+  }
+
+  elements.joinIphoneButton.disabled = true;
+  elements.joinIphoneButton.textContent = "Connecting…";
+  elements.iphoneJoinCopy.textContent = "Checking the code and password…";
+  setStatus("connecting", "Joining iPhone…");
+  try {
+    const session = await apiRequest("/v1/iphone/join", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ code, password })
+    });
+    if (classifyUrl(session.playbackURL) !== "whep") throw new Error("The stream server returned an invalid playback address.");
+    localStorage.setItem(STORAGE_KEY, session.playbackURL);
+    localStorage.removeItem(LEGACY_STORAGE_KEY);
+    elements.playbackUrl.value = session.playbackURL;
+    elements.iphoneJoinPassword.value = "";
+    elements.leaveIphoneButton.classList.remove("hidden");
+    elements.forgetButton.classList.remove("hidden");
+    elements.iphoneJoinCopy.textContent = "Access approved. Start the broadcast on the iPhone if it is not already live.";
+    showToast("Private iPhone session joined");
+    await connectPlayback();
+  } catch (error) {
+    elements.iphoneJoinCopy.textContent = error.message || "The code or password is incorrect.";
+    setStatus("error", "Could not join");
+  } finally {
+    elements.joinIphoneButton.disabled = false;
+    elements.joinIphoneButton.textContent = "Watch iPhone";
+  }
+}
+
+async function leaveIphoneStream() {
+  stoppedByUser = true;
+  connectionAttempt += 1;
+  localStorage.removeItem(STORAGE_KEY);
+  localStorage.removeItem(LEGACY_STORAGE_KEY);
+  elements.playbackUrl.value = "";
+  elements.forgetButton.classList.add("hidden");
+  elements.leaveIphoneButton.classList.add("hidden");
+  await closeSession();
+  playbackMode = "none";
+  setStatus("idle", "Enter code and password");
+  elements.streamMessage.textContent = "Waiting for setup";
+  elements.reconnectButton.disabled = true;
+  elements.iphoneJoinCopy.textContent = "Open iPhone Remote and create a stream, then enter its code and password here.";
+  setEmpty("Enter your iPhone details", "Use the join code and password shown in the iPhone Remote app.", "Enter details");
 }
 
 async function startDesktopShare() {
@@ -515,10 +487,10 @@ async function connectPlayback(isRetry = false) {
   const playbackUrl = getSavedUrl();
   const mode = classifyUrl(playbackUrl);
   if (!playbackUrl || mode === "invalid") {
-    setStatus("idle", "Not configured");
+    setStatus("idle", "Enter code and password");
     elements.streamMessage.textContent = "Waiting for setup";
     elements.reconnectButton.disabled = true;
-    setEmpty("Connect your stream", "Add your Cloudflare playback URL to begin.", "Set up stream");
+    setEmpty("Enter your iPhone details", "Use the join code and password shown in the iPhone Remote app.", "Enter details");
     return;
   }
 
@@ -659,8 +631,18 @@ elements.desktopFullscreenButton.addEventListener("click", async () => {
     showToast("Fullscreen is unavailable");
   }
 });
-elements.pairButton.addEventListener("click", generatePairingCode);
-elements.cancelPairButton.addEventListener("click", () => stopPairing());
+elements.joinIphoneButton.addEventListener("click", joinIphoneStream);
+elements.leaveIphoneButton.addEventListener("click", leaveIphoneStream);
+elements.iphoneJoinCode.addEventListener("input", () => {
+  const digits = elements.iphoneJoinCode.value.replace(/\D/g, "").slice(0, 6);
+  elements.iphoneJoinCode.value = digits.length > 3 ? `${digits.slice(0, 3)} ${digits.slice(3)}` : digits;
+});
+elements.iphoneJoinCode.addEventListener("keydown", (event) => {
+  if (event.key === "Enter") elements.iphoneJoinPassword.focus();
+});
+elements.iphoneJoinPassword.addEventListener("keydown", (event) => {
+  if (event.key === "Enter") joinIphoneStream();
+});
 elements.playbackUrl.addEventListener("keydown", (event) => {
   if (event.key === "Enter") saveAndConnect();
 });
@@ -677,24 +659,12 @@ elements.reconnectButton.addEventListener("click", () => connectPlayback());
 elements.emptyAction.addEventListener("click", () => {
   if (getSavedUrl()) connectPlayback();
   else {
-    elements.pairButton.scrollIntoView({ behavior: "smooth", block: "center" });
-    if (PAIRING_API) elements.pairButton.focus();
-    else elements.playbackUrl.focus();
+    elements.joinIphoneButton.scrollIntoView({ behavior: "smooth", block: "center" });
+    elements.iphoneJoinCode.focus();
   }
 });
 elements.forgetButton.addEventListener("click", async () => {
-  stoppedByUser = true;
-  connectionAttempt += 1;
-  localStorage.removeItem(STORAGE_KEY);
-  localStorage.removeItem(LEGACY_STORAGE_KEY);
-  elements.playbackUrl.value = "";
-  elements.forgetButton.classList.add("hidden");
-  await closeSession();
-  playbackMode = "none";
-  setStatus("idle", "Not configured");
-  elements.streamMessage.textContent = "Waiting for setup";
-  elements.reconnectButton.disabled = true;
-  setEmpty("Connect your stream", "Add your Cloudflare playback URL to begin.", "Set up stream");
+  await leaveIphoneStream();
   showToast("Saved stream removed");
 });
 elements.muteButton.addEventListener("click", () => {
@@ -739,6 +709,7 @@ const savedUrl = getSavedUrl();
 if (savedUrl) {
   elements.playbackUrl.value = savedUrl;
   elements.forgetButton.classList.remove("hidden");
+  elements.leaveIphoneButton.classList.remove("hidden");
 }
 elements.desktopSharePassword.value = generateSecurePassword();
 setMode(location.hash.slice(1) || "watch-iphone", false);
