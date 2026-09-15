@@ -113,12 +113,7 @@ function buildMoblinUrl(publishUrl) {
 }
 
 async function createIphoneHostSession() {
-  const password = elements.iphoneSharePassword.value;
-  if (password.length < 10) {
-    showToast("Use at least 10 characters");
-    elements.iphoneSharePassword.focus();
-    return;
-  }
+  const password = "";
 
   await endIphoneHostSession(false);
   elements.createIphoneButton.disabled = true;
@@ -137,8 +132,6 @@ async function createIphoneHostSession() {
     iphonePublishUrl = session.whipPublishURL;
     iphoneSessionCode = session.code;
     iphoneSessionPassword = password;
-    elements.iphoneSharePassword.disabled = true;
-    elements.generateIphonePassword.disabled = true;
     elements.iphoneShareDigits.textContent = `${session.code.slice(0, 3)} ${session.code.slice(3)}`;
     elements.iphoneHostResult.classList.remove("hidden");
     elements.createIphoneButton.classList.add("hidden");
@@ -264,21 +257,16 @@ async function apiRequest(path, options = {}) {
 
 async function joinIphoneStream() {
   const code = elements.iphoneJoinCode.value.replace(/\D/g, "");
-  const password = elements.iphoneJoinPassword.value;
+  const password = "";
   if (code.length !== 6) {
     showToast("Enter the six-digit iPhone code");
     elements.iphoneJoinCode.focus();
     return;
   }
-  if (password.length < 10) {
-    showToast("Enter the iPhone session password");
-    elements.iphoneJoinPassword.focus();
-    return;
-  }
 
   elements.joinIphoneButton.disabled = true;
   elements.joinIphoneButton.textContent = "Connecting…";
-  elements.iphoneJoinCopy.textContent = "Checking the code and password…";
+  elements.iphoneJoinCopy.textContent = "Checking the temporary code…";
   setStatus("connecting", "Joining iPhone…");
   try {
     const session = await apiRequest("/v1/iphone/join", {
@@ -291,14 +279,13 @@ async function joinIphoneStream() {
     localStorage.removeItem(STORAGE_KEY);
     localStorage.removeItem(LEGACY_STORAGE_KEY);
     elements.playbackUrl.value = "";
-    elements.iphoneJoinPassword.value = "";
     elements.leaveIphoneButton.classList.remove("hidden");
     elements.forgetButton.classList.remove("hidden");
     elements.iphoneJoinCopy.textContent = "Access approved. Start the broadcast on the iPhone if it is not already live.";
     showToast("Private iPhone session joined");
     await connectPlayback();
   } catch (error) {
-    elements.iphoneJoinCopy.textContent = error.message || "The code or password is incorrect.";
+    elements.iphoneJoinCopy.textContent = error.message || "The code is incorrect or expired.";
     setStatus("error", "Could not join");
   } finally {
     elements.joinIphoneButton.disabled = false;
@@ -317,11 +304,11 @@ async function leaveIphoneStream() {
   elements.leaveIphoneButton.classList.add("hidden");
   await closeSession();
   playbackMode = "none";
-  setStatus("idle", "Enter code and password");
+  setStatus("idle", "Enter a code");
   elements.streamMessage.textContent = "Waiting for setup";
   elements.reconnectButton.disabled = true;
-  elements.iphoneJoinCopy.textContent = "Create the stream on the iPhone, then enter its code and password here.";
-  setEmpty("Enter your iPhone details", "Use the join code and password created on the iPhone.", "Enter details");
+  elements.iphoneJoinCopy.textContent = "Create the stream on the iPhone, then enter its temporary code here.";
+  setEmpty("Enter your iPhone code", "Use the temporary code created on the iPhone.", "Enter code");
 }
 
 async function startDesktopShare() {
@@ -329,16 +316,9 @@ async function startDesktopShare() {
     showToast("Screen sharing is not supported in this browser");
     return;
   }
-  const password = elements.desktopSharePassword.value;
-  if (password.length < 10) {
-    showToast("Use a password with at least 10 characters");
-    elements.desktopSharePassword.focus();
-    return;
-  }
+  const password = "";
   await stopDesktopHost(true);
   desktopSessionPassword = password;
-  elements.desktopSharePassword.disabled = true;
-  elements.generateDesktopPassword.disabled = true;
   elements.startDesktopButton.disabled = true;
   elements.startDesktopButton.textContent = "Choose a screen…";
   try {
@@ -456,12 +436,7 @@ async function joinDesktopShare() {
     elements.desktopJoinCode.focus();
     return;
   }
-  const password = elements.desktopJoinPassword.value;
-  if (password.length < 10) {
-    showToast("Enter the session password");
-    elements.desktopJoinPassword.focus();
-    return;
-  }
+  const password = "";
   leaveDesktopShare();
   elements.joinDesktopButton.disabled = true;
   elements.joinDesktopButton.textContent = "Connecting…";
@@ -602,10 +577,10 @@ async function connectPlayback(isRetry = false) {
   const privateSession = Boolean(iphoneViewerToken);
   const mode = privateSession ? "private" : classifyUrl(playbackUrl);
   if ((!privateSession && !playbackUrl) || mode === "invalid") {
-    setStatus("idle", "Enter code and password");
+    setStatus("idle", "Enter a code");
     elements.streamMessage.textContent = "Waiting for setup";
     elements.reconnectButton.disabled = true;
-    setEmpty("Enter your iPhone details", "Use the join code and password created on the iPhone.", "Enter details");
+    setEmpty("Enter your iPhone code", "Use the temporary code created on the iPhone.", "Enter code");
     return;
   }
 
@@ -725,10 +700,10 @@ elements.generateDesktopPassword.addEventListener("click", () => {
 elements.copyDesktopAccess.addEventListener("click", async () => {
   if (!desktopSessionCode) return;
   try {
-    await navigator.clipboard.writeText(`Code: ${desktopSessionCode}\nPassword: ${desktopSessionPassword}`);
-    showToast("Code and password copied");
+    await navigator.clipboard.writeText(`Code: ${desktopSessionCode}`);
+    showToast("Code copied");
   } catch {
-    showToast("Copy the code and password manually");
+    showToast("Copy the code manually");
   }
 });
 elements.stopDesktopButton.addEventListener("click", () => stopDesktopHost());
@@ -776,8 +751,8 @@ elements.copyMoblinUrlButton.addEventListener("click", async () => {
 });
 elements.copyIphoneAccessButton.addEventListener("click", async () => {
   if (!iphoneSessionCode) return;
-  await navigator.clipboard.writeText(`Remote Screen\nCode: ${iphoneSessionCode}\nPassword: ${iphoneSessionPassword}`);
-  showToast("Code and password copied");
+  await navigator.clipboard.writeText(`Remote Screen\nCode: ${iphoneSessionCode}`);
+  showToast("Code copied");
 });
 elements.endIphoneSessionButton.addEventListener("click", async () => {
   await endIphoneHostSession();
@@ -789,7 +764,7 @@ elements.iphoneJoinCode.addEventListener("input", () => {
   elements.iphoneJoinCode.value = digits.length > 3 ? `${digits.slice(0, 3)} ${digits.slice(3)}` : digits;
 });
 elements.iphoneJoinCode.addEventListener("keydown", (event) => {
-  if (event.key === "Enter") elements.iphoneJoinPassword.focus();
+  if (event.key === "Enter") joinIphoneStream();
 });
 elements.iphoneJoinPassword.addEventListener("keydown", (event) => {
   if (event.key === "Enter") joinIphoneStream();
