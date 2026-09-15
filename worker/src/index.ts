@@ -336,10 +336,14 @@ export default {
         response = await plexPlaybackInfo(request, env, url.pathname.split("/")[4]);
       } else if (/^\/v1\/plex\/stream\/\d+$/.test(url.pathname) && ["GET", "HEAD"].includes(request.method)) {
         response = await plexStream(request, env, url.pathname.split("/")[4]);
+      } else if (/^\/v1\/plex\/hls\/start\/\d+$/.test(url.pathname) && request.method === "GET") {
+        response = await plexHlsStart(request, env, url.pathname.split("/")[5]);
+      } else if (url.pathname === "/v1/plex/hls/proxy" && request.method === "GET") {
+        response = await plexHlsProxy(request, env);
       } else if (url.pathname === "/health") {
         response = json({
           ok: true,
-          version: "plex-fast-route-cache-3",
+          version: "plex-hls-playback-4",
           streamConfigured: Boolean(env.CLOUDFLARE_ACCOUNT_ID && env.CLOUDFLARE_API_TOKEN),
           pairingStorageConfigured: Boolean(env.PAIRING_SESSION),
           plexStorageConfigured: Boolean(env.PLEX_SESSION)
@@ -754,9 +758,11 @@ async function plexPlaybackInfo(request: Request, env: Env, ratingKey: string): 
   const direct = browserDirectPlay(media || {});
   const session = bearerToken(request) || "";
   return json({
-    url: `${new URL(request.url).origin}/v1/plex/stream/${ratingKey}?session=${encodeURIComponent(session)}`,
-    mode: direct ? "direct" : "transcode",
-    note: direct ? "Direct Play: the browser supports this container and codec." : "Plex is converting this file to H.264/AAC MP4 for browser playback."
+    url: direct
+      ? `${new URL(request.url).origin}/v1/plex/stream/${ratingKey}?session=${encodeURIComponent(session)}`
+      : `${new URL(request.url).origin}/v1/plex/hls/start/${ratingKey}?session=${encodeURIComponent(session)}`,
+    mode: direct ? "direct" : "hls",
+    note: direct ? "Direct Play: the browser supports this container and codec." : "Plex is converting this file to browser-compatible H.264/AAC HLS."
   });
 }
 
@@ -784,6 +790,62 @@ async function plexStream(request: Request, env: Env, ratingKey: string): Promis
   const outgoing = copyMediaHeaders(upstream.headers);
   outgoing.set("Cache-Control", "private, no-store");
   return new Response(request.method === "HEAD" ? null : upstream.body, { status: upstream.status, headers: outgoing });
+}
+
+async function plexHlsStart(request: Request, env: Env, ratingKey: string): Promise<Response> {
+  const auth = await readPlexState(request, env, true);
+  await plexRawItem(auth.state, ratingKey);
+  const session = new URL(request.url).searchParams.get("session") || "";
+  const params = new URLSearchParams({
+    path: `/library/metadata/${ratingKey}`,
+    mediaIndex: "0", partIndex: "0", protocol: "hls", fastSeek: "1", hasMDE: "1",
+    directPlay: "0", directStream: "0", directStreamAudio: "0", container: "mpegts",
+    videoCodec: "h264", audioCodec: "aac", maxVideoBitrate: "12000", videoQuality: "100",
+    videoResolution: "1920x1080", subtitleSize: "100", audioBoost: "100", location: "wan",
+    session: `${session}-${ratingKey}`, "X-Plex-Client-Identifier": PLEX_CLIENT_ID
+  });
+  return proxyPlexHlsPath(request, auth.state, `/video/:/transcode/universal/start.m3u8?${params}`);
+}
+
+async function plexHlsProxy(request: Request, env: Env): Promise<Response> {
+  const auth = await readPlexState(request, env, true);
+  const path = new URL(request.url).searchParams.get("path") || "";
+  if (!path.startsWith("/video/:/transcode/universal/") || !safePlexPath(path)) {
+    return json({ error: "Invalid Plex transcode path." }, 400);
+  }
+  return proxyPlexHlsPath(request, auth.state, path);
+}
+
+async function proxyPlexHlsPath(request: Request, state: PlexState, path: string): Promise<Response> {
+  const upstream = await plexServerFetch(state, path);
+  if (!upstream.ok) {
+    const detail = (await upstream.text()).slice(0, 300);
+    throw new HttpError(detail || `Plex transcoder returned HTTP ${upstream.status}.`, upstream.status >= 400 && upstream.status < 600 ? upstream.status : 502);
+  }
+  const contentType = upstream.headers.get("Content-Type") || "";
+  if (path.includes(".m3u8") || contentType.includes("mpegurl")) {
+    const session = new URL(request.url).searchParams.get("session") || "";
+    const manifest = await upstream.text();
+    const rewritten = rewritePlexManifest(manifest, path, new URL(request.url).origin, session);
+    return new Response(rewritten, { headers: { "Content-Type": "application/vnd.apple.mpegurl", "Cache-Control": "private, no-store" } });
+  }
+  const headers = copyMediaHeaders(upstream.headers);
+  headers.set("Cache-Control", "private, no-store");
+  return new Response(upstream.body, { status: upstream.status, headers });
+}
+
+function rewritePlexManifest(manifest: string, basePath: string, workerOrigin: string, session: string): string {
+  const proxy = (value: string) => {
+    const parsed = new URL(value, `https://plex.invalid${basePath}`);
+    const path = `${parsed.pathname}${parsed.search}`;
+    if (!path.startsWith("/video/:/transcode/universal/")) return value;
+    return `${workerOrigin}/v1/plex/hls/proxy?session=${encodeURIComponent(session)}&path=${encodeURIComponent(path)}`;
+  };
+  return manifest.split(/\r?\n/).map((line) => {
+    if (!line) return line;
+    if (!line.startsWith("#")) return proxy(line);
+    return line.replace(/URI="([^"]+)"/g, (_match, uri: string) => `URI="${proxy(uri)}"`);
+  }).join("\n");
 }
 
 async function readPlexState(request: Request, env: Env, allowQuery = false): Promise<{ state: PlexState; stub: DurableObjectStub<PlexSession> }> {
