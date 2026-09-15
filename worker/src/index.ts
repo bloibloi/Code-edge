@@ -1,13 +1,9 @@
 import { DurableObject } from "cloudflare:workers";
-import { AccessToken, IngressClient, IngressInput } from "livekit-server-sdk";
 
 export interface Env {
   PAIRING_SESSION: DurableObjectNamespace<PairingSession>;
   CLOUDFLARE_ACCOUNT_ID: string;
   CLOUDFLARE_API_TOKEN: string;
-  LIVEKIT_URL?: string;
-  LIVEKIT_API_KEY?: string;
-  LIVEKIT_API_SECRET?: string;
   ALLOWED_ORIGIN: string;
 }
 
@@ -25,9 +21,6 @@ type StoredSession = {
   passwordSalt?: string;
   passwordHash?: string;
   failedAttempts?: number;
-  provider?: "cloudflare" | "livekit";
-  livekitRoom?: string;
-  livekitIngressId?: string;
 };
 
 type LiveInputResponse = {
@@ -123,12 +116,8 @@ export class PairingSession extends DurableObject<Env> {
       }
       current.whipPublishURL = body.whipPublishURL;
       current.whepPlaybackURL = body.whepPlaybackURL;
-      current.provider = body.provider === "livekit" ? "livekit" : "cloudflare";
-      current.livekitRoom = body.livekitRoom;
-      current.livekitIngressId = body.livekitIngressId;
       current.state = "waiting";
       await this.ctx.storage.put("session", current);
-      await this.ctx.storage.setAlarm(current.expiresAt);
       return json({ ok: true });
     }
 
@@ -136,7 +125,7 @@ export class PairingSession extends DurableObject<Env> {
       const genericError = "The code is incorrect, expired, or has reached its viewer limit.";
       const viewers = current?.viewerSecrets || (current?.viewerSecret ? [current.viewerSecret] : []);
       if (expired || current.kind !== "iphone-host" || !["waiting", "claimed"].includes(current.state) ||
-          (!current.whepPlaybackURL && !current.livekitRoom) || viewers.length >= MAX_IPHONE_VIEWERS || (current.failedAttempts || 0) >= 8) {
+          !current.whepPlaybackURL || viewers.length >= MAX_IPHONE_VIEWERS || (current.failedAttempts || 0) >= 8) {
         return json({ error: genericError }, 404);
       }
       const candidateHash = await hashPassword(body.password || "", current.passwordSalt || "");
@@ -149,12 +138,7 @@ export class PairingSession extends DurableObject<Env> {
       delete current.viewerSecret;
       current.state = "claimed";
       await this.ctx.storage.put("session", current);
-      return json({
-        expiresAt: new Date(current.expiresAt).toISOString(),
-        viewerCount: current.viewerSecrets.length,
-        provider: current.provider || "cloudflare",
-        livekitRoom: current.livekitRoom
-      });
+      return json({ expiresAt: new Date(current.expiresAt).toISOString(), viewerCount: current.viewerSecrets.length });
     }
 
     if (url.pathname === "/iphone/play" && request.method === "POST") {
@@ -178,11 +162,7 @@ export class PairingSession extends DurableObject<Env> {
     }
 
     if (url.pathname === "/iphone/release" && request.method === "POST") {
-      if (current?.kind === "iphone-host" && current.secret === body.secret) {
-        await this.ctx.storage.delete("session");
-        await this.ctx.storage.deleteAlarm();
-        return json({ ok: true, livekitIngressId: current.livekitIngressId });
-      }
+      if (current?.kind === "iphone-host" && current.secret === body.secret) await this.ctx.storage.delete("session");
       return json({ ok: true });
     }
 
@@ -249,12 +229,6 @@ export class PairingSession extends DurableObject<Env> {
 
     return json({ error: "Not found" }, 404);
   }
-
-  async alarm(): Promise<void> {
-    const current = await this.ctx.storage.get<StoredSession>("session");
-    if (current?.livekitIngressId) await deleteLiveKitIngress(this.env, current.livekitIngressId);
-    await this.ctx.storage.delete("session");
-  }
 }
 
 export default {
@@ -296,8 +270,7 @@ export default {
       } else if (url.pathname === "/health") {
         response = json({
           ok: true,
-          streamConfigured: hasLiveKit(env) || Boolean(env.CLOUDFLARE_ACCOUNT_ID && env.CLOUDFLARE_API_TOKEN),
-          livekitConfigured: hasLiveKit(env),
+          streamConfigured: Boolean(env.CLOUDFLARE_ACCOUNT_ID && env.CLOUDFLARE_API_TOKEN),
           pairingStorageConfigured: Boolean(env.PAIRING_SESSION)
         });
       } else {
@@ -380,7 +353,7 @@ async function pairingStatus(url: URL, env: Env): Promise<Response> {
 }
 
 async function createIPhoneSession(request: Request, env: Env): Promise<Response> {
-  const body = await request.json<{ password?: string; transport?: "whip" }>();
+  const body = await request.json<{ password?: string }>();
   const password = body.password || "";
   if (password.length > 128) {
     return json({ error: "The session credential is invalid." }, 400);
@@ -405,9 +378,7 @@ async function createIPhoneSession(request: Request, env: Env): Promise<Response
   if (!stub) return json({ error: "Could not allocate an iPhone join code. Try again." }, 503);
 
   try {
-    const liveInput = body.transport !== "whip" && hasLiveKit(env)
-      ? await createLiveKitIngress(env, code)
-      : await createCloudflareLiveInput(env, code);
+    const liveInput = await createCloudflareLiveInput(env, code);
     const configured = await stub.fetch("https://session/iphone/configure", {
       method: "POST",
       body: JSON.stringify({ secret, ...liveInput })
@@ -419,7 +390,6 @@ async function createIPhoneSession(request: Request, env: Env): Promise<Response
       whipPublishURL: liveInput.whipPublishURL,
       rtmpsURL: liveInput.rtmpsURL,
       rtmpsStreamKey: liveInput.rtmpsStreamKey,
-      provider: liveInput.provider,
       expiresAt: new Date(expiresAt).toISOString()
     });
   } catch (error) {
@@ -445,20 +415,6 @@ async function joinIPhoneSession(request: Request, env: Env): Promise<Response> 
   });
   const payload = await response.json<Record<string, unknown>>();
   if (!response.ok) return json(payload, response.status);
-  if (payload.provider === "livekit" && typeof payload.livekitRoom === "string") {
-    if (!hasLiveKit(env)) return json({ error: "LiveKit is not configured." }, 503);
-    const token = new AccessToken(env.LIVEKIT_API_KEY, env.LIVEKIT_API_SECRET, {
-      identity: `viewer-${viewerSecret.slice(0, 12)}`,
-      ttl: Math.max(30, Math.floor(IPHONE_SESSION_TTL_MS / 1000))
-    });
-    token.addGrant({ roomJoin: true, room: payload.livekitRoom, canSubscribe: true, canPublish: false });
-    return json({
-      ...payload,
-      viewerToken: `${code}.${viewerSecret}`,
-      livekitURL: env.LIVEKIT_URL,
-      livekitToken: await token.toJwt()
-    });
-  }
   return json({ ...payload, viewerToken: `${code}.${viewerSecret}` });
 }
 
@@ -502,13 +458,10 @@ async function releaseIPhoneSession(request: Request, env: Env): Promise<Respons
   const body = await request.json<{ token?: string }>();
   const token = parseToken(body.token);
   if (!token) return json({ ok: true });
-  const response = await env.PAIRING_SESSION.getByName(token.code).fetch("https://session/iphone/release", {
+  return env.PAIRING_SESSION.getByName(token.code).fetch("https://session/iphone/release", {
     method: "POST",
     body: JSON.stringify({ secret: token.secret })
   });
-  const payload = await response.json<{ livekitIngressId?: string }>();
-  if (payload.livekitIngressId) await deleteLiveKitIngress(env, payload.livekitIngressId);
-  return json({ ok: true });
 }
 
 async function createDesktopSession(request: Request, env: Env): Promise<Response> {
@@ -641,46 +594,7 @@ async function createCloudflareLiveInput(env: Env, code: string) {
       `Cloudflare Stream rejected the Live Input request: ${payload.errors?.[0]?.message || `HTTP ${response.status}`}`
     );
   }
-  return { provider: "cloudflare" as const, whipPublishURL, whepPlaybackURL, rtmpsURL, rtmpsStreamKey };
-}
-
-function hasLiveKit(env: Env): env is Env & Required<Pick<Env, "LIVEKIT_URL" | "LIVEKIT_API_KEY" | "LIVEKIT_API_SECRET">> {
-  return Boolean(env.LIVEKIT_URL && env.LIVEKIT_API_KEY && env.LIVEKIT_API_SECRET);
-}
-
-async function createLiveKitIngress(env: Env, code: string) {
-  if (!hasLiveKit(env)) throw new PublicError("LiveKit is not configured in Worker secrets.");
-  const roomName = `iphone-${code}-${randomToken().slice(0, 10)}`;
-  const client = new IngressClient(env.LIVEKIT_URL, env.LIVEKIT_API_KEY, env.LIVEKIT_API_SECRET);
-  const ingress = await client.createIngress(IngressInput.RTMP_INPUT, {
-    name: `iPhone Remote ${code}`,
-    roomName,
-    participantIdentity: `iphone-${code}`,
-    participantName: "iPhone screen",
-    enableTranscoding: true
-  });
-  if (!ingress.url || !ingress.streamKey || !ingress.ingressId) {
-    throw new PublicError("LiveKit did not return complete RTMPS publishing details.");
-  }
-  return {
-    provider: "livekit" as const,
-    whipPublishURL: undefined,
-    whepPlaybackURL: undefined,
-    rtmpsURL: ingress.url,
-    rtmpsStreamKey: ingress.streamKey,
-    livekitRoom: roomName,
-    livekitIngressId: ingress.ingressId
-  };
-}
-
-async function deleteLiveKitIngress(env: Env, ingressId: string): Promise<void> {
-  if (!hasLiveKit(env)) return;
-  try {
-    const client = new IngressClient(env.LIVEKIT_URL, env.LIVEKIT_API_KEY, env.LIVEKIT_API_SECRET);
-    await client.deleteIngress(ingressId);
-  } catch (error) {
-    console.error("Could not delete expired LiveKit ingress", error);
-  }
+  return { whipPublishURL, whepPlaybackURL, rtmpsURL, rtmpsStreamKey };
 }
 
 function corsHeaders(request: Request, env: Env): Record<string, string> {
