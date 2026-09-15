@@ -8,9 +8,9 @@
   <meta name="referrer" content="no-referrer">
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; connect-src 'self' https://iphone-remote-pairing.liamlitchfeild.workers.dev https://*.cloudflarestream.com; frame-src https://*.cloudflarestream.com; media-src 'self' blob:; img-src 'self' data:; style-src 'self'; script-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'">
   <title>Remote Screen</title>
-  <link rel="stylesheet" href="./styles.css?v=20260915-2">
-  <script src="./config.js?v=20260915-2"></script>
-  <script src="./app.js?v=20260915-2" defer></script>
+  <link rel="stylesheet" href="./styles.css?v=20260915-3">
+  <script src="./config.js?v=20260915-3"></script>
+  <script src="./app.js?v=20260915-3" defer></script>
 </head>
 <body>
   <div class="glow glow-a"></div><div class="glow glow-b"></div>
@@ -116,28 +116,28 @@
         </div>
         <aside class="side-panel">
           <details class="panel-section iphone-host" id="iphoneHostPanel">
-            <summary>Stream this iPhone with Moblin</summary>
-            <p class="section-copy">Create a private session for up to five viewers, then send the screen through the free Moblin app.</p>
+            <summary>Stream this iPhone with StreamChamp</summary>
+            <p class="section-copy">Create a private session for up to five viewers, then add its secure RTMPS details to StreamChamp.</p>
             <label class="hidden" for="iphoneSharePassword">Session password</label>
             <div class="url-row hidden"><input id="iphoneSharePassword" type="password" maxlength="128" autocomplete="off"><button class="paste-button" id="generateIphonePassword" type="button">Generate</button></div>
             <button class="primary-button" id="createIphoneButton" type="button">Create private stream</button>
             <div class="iphone-host-result hidden" id="iphoneHostResult">
               <div class="pairing-code"><span id="iphoneShareDigits">000 000</span><small>Join code · expires in 15 minutes</small></div>
-              <button class="primary-button" id="openMoblinButton" type="button">Open in Moblin</button>
-              <button class="secondary-button" id="copyMoblinUrlButton" type="button">Copy private URL manually</button>
+              <button class="primary-button" id="copyStreamChampServerButton" type="button">1. Copy server URL</button>
+              <button class="secondary-button" id="copyStreamChampKeyButton" type="button">2. Copy stream key</button>
               <button class="secondary-button" id="copyIphoneAccessButton" type="button">Copy code</button>
               <button class="secondary-button" id="endIphoneSessionButton" type="button">End private session</button>
               <ol class="compact-steps">
-                <li>In Moblin, use <strong>Screen capture</strong> as the video source.</li>
-                <li>Open Control Center and hold <strong>Screen Recording</strong>.</li>
-                <li>Select <strong>Moblin</strong>, then tap <strong>Start Broadcast</strong>.</li>
+                <li>In StreamChamp, add a <strong>Custom RTMP</strong> destination and paste the server URL and key.</li>
+                <li>Start StreamChamp's <strong>Screen Broadcast</strong> mode.</li>
+                <li>Open Control Center, hold <strong>Screen Recording</strong>, select <strong>StreamChamp</strong>, then start.</li>
               </ol>
             </div>
             <p class="security-copy">The private publishing address is shown only on this device. Never send it to the viewer.</p>
           </details>
           <section class="panel-section">
             <p class="eyebrow">WATCH IPHONE</p><h2>Enter the code</h2>
-            <p class="section-copy" id="iphoneJoinCopy">Create the stream on the iPhone, then enter its temporary code here.</p>
+            <p class="section-copy" id="iphoneJoinCopy">Create the StreamChamp broadcast on the iPhone, then enter its temporary code here.</p>
             <label for="iphoneJoinCode">iPhone join code</label>
             <input class="code-input" id="iphoneJoinCode" type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="7" placeholder="000 000">
             <label class="spaced-label hidden" for="iphoneJoinPassword">Session password</label>
@@ -145,7 +145,7 @@
             <button class="primary-button" id="joinIphoneButton" type="button">Watch iPhone</button>
             <button class="secondary-button hidden" id="leaveIphoneButton" type="button">Disconnect</button>
           </section>
-          <section class="panel-section instructions"><div class="section-title-row"><div><p class="eyebrow">HOW IT WORKS</p><h2>Three quick steps</h2></div><span class="latency-chip fast">WebRTC</span></div><ol><li><span>1</span><div><strong>Create on iPhone</strong><small>Open this page on the iPhone and select “Stream this iPhone with Moblin.”</small></div></li><li><span>2</span><div><strong>Start Moblin broadcast</strong><small>The website securely passes Moblin the temporary publishing address.</small></div></li><li><span>3</span><div><strong>Join on other devices</strong><small>Up to five viewers can enter the same temporary six-digit code.</small></div></li></ol></section>
+          <section class="panel-section instructions"><div class="section-title-row"><div><p class="eyebrow">HOW IT WORKS</p><h2>Three quick steps</h2></div><span class="latency-chip fast">Secure RTMPS</span></div><ol><li><span>1</span><div><strong>Create on iPhone</strong><small>Open this page on the iPhone and create a StreamChamp session.</small></div></li><li><span>2</span><div><strong>Start Screen Broadcast</strong><small>Paste the private server and stream key into StreamChamp's Custom RTMP destination.</small></div></li><li><span>3</span><div><strong>Join on other devices</strong><small>Up to five viewers can enter the same temporary six-digit code.</small></div></li></ol></section>
           <details class="panel-section manual-source"><summary>Use a playback URL instead</summary><p class="section-copy">For testing, paste a Cloudflare WHEP or iframe playback URL. It is stored only in this browser.</p><label for="playbackUrl">Cloudflare playback URL</label><div class="url-row"><input id="playbackUrl" type="url" inputmode="url" autocomplete="off" spellcheck="false" placeholder="https://customer-…/…/webRTC/play"><button class="paste-button" id="pasteButton" type="button">Paste</button></div><button class="primary-button" id="saveButton" type="button">Save and connect</button><button class="secondary-button hidden" id="forgetButton" type="button">Forget stream</button></details>
           <details class="panel-section privacy-note"><summary>Privacy and compatibility</summary><p>The publishing URL stays on the iPhone. The playback URL stays inside the Worker and is never sent to viewers. Up to five short-lived viewer tokens are issued to devices with the temporary code. Media is encrypted in transit with WebRTC. Cloudflare relays the stream, so this is not end-to-end encrypted from Cloudflare itself. Anyone with the code can attempt to join. Apple always confirms screen sharing; enable Focus to hide notifications. DRM-protected video can be blocked by iOS.</p></details>
         </aside>
