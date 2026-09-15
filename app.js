@@ -41,8 +41,8 @@ const elements = {
   createIphoneButton: document.querySelector("#createIphoneButton"),
   iphoneHostResult: document.querySelector("#iphoneHostResult"),
   iphoneShareDigits: document.querySelector("#iphoneShareDigits"),
-  openMoblinButton: document.querySelector("#openMoblinButton"),
-  copyMoblinUrlButton: document.querySelector("#copyMoblinUrlButton"),
+  copyStreamChampServerButton: document.querySelector("#copyStreamChampServerButton"),
+  copyStreamChampKeyButton: document.querySelector("#copyStreamChampKeyButton"),
   copyIphoneAccessButton: document.querySelector("#copyIphoneAccessButton"),
   endIphoneSessionButton: document.querySelector("#endIphoneSessionButton"),
   modeTabs: [...document.querySelectorAll("[data-mode]")],
@@ -91,6 +91,8 @@ let desktopSessionPassword = "";
 let desktopPublishSessionUrl = "";
 let iphonePublisherToken = "";
 let iphonePublishUrl = "";
+let iphoneRtmpsUrl = "";
+let iphoneRtmpsStreamKey = "";
 let iphoneSessionCode = "";
 let iphoneSessionPassword = "";
 let iphoneViewerToken = "";
@@ -99,17 +101,6 @@ function generateSecurePassword() {
   const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789!@#$%";
   const bytes = crypto.getRandomValues(new Uint8Array(20));
   return [...bytes].map((value) => alphabet[value % alphabet.length]).join("");
-}
-
-function buildMoblinUrl(publishUrl) {
-  const settings = {
-    streams: [{
-      name: `Remote Screen ${iphoneSessionCode}`,
-      url: publishUrl,
-      video: { codec: "H.264/AVC" }
-    }]
-  };
-  return `moblin://?${encodeURIComponent(JSON.stringify(settings))}`;
 }
 
 async function createIphoneHostSession() {
@@ -125,17 +116,19 @@ async function createIphoneHostSession() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ password })
     });
-    if (!/^\d{6}$/.test(session.code) || !session.publisherToken || !/^https:\/\//.test(session.whipPublishURL || "")) {
+    if (!/^\d{6}$/.test(session.code) || !session.publisherToken || !/^rtmps:\/\//.test(session.rtmpsURL || "") || !session.rtmpsStreamKey) {
       throw new Error("The stream server returned invalid session details.");
     }
     iphonePublisherToken = session.publisherToken;
     iphonePublishUrl = session.whipPublishURL;
+    iphoneRtmpsUrl = session.rtmpsURL;
+    iphoneRtmpsStreamKey = session.rtmpsStreamKey;
     iphoneSessionCode = session.code;
     iphoneSessionPassword = password;
     elements.iphoneShareDigits.textContent = `${session.code.slice(0, 3)} ${session.code.slice(3)}`;
     elements.iphoneHostResult.classList.remove("hidden");
     elements.createIphoneButton.classList.add("hidden");
-    setStatus("waiting", "Ready for Moblin");
+    setStatus("waiting", "Ready for StreamChamp");
     showToast("Private stream created");
   } catch (error) {
     setStatus("error", "Could not create stream");
@@ -150,6 +143,8 @@ async function endIphoneHostSession(notifyServer = true) {
   const token = iphonePublisherToken;
   iphonePublisherToken = "";
   iphonePublishUrl = "";
+  iphoneRtmpsUrl = "";
+  iphoneRtmpsStreamKey = "";
   iphoneSessionCode = "";
   iphoneSessionPassword = "";
   elements.iphoneHostResult.classList.add("hidden");
@@ -167,14 +162,6 @@ async function endIphoneHostSession(notifyServer = true) {
       });
     } catch { /* The session expires automatically. */ }
   }
-}
-
-function openMoblin() {
-  if (!iphonePublishUrl) return;
-  window.location.href = buildMoblinUrl(iphonePublishUrl);
-  setTimeout(() => {
-    if (!document.hidden) showToast("If Moblin did not open, install it from the App Store");
-  }, 1500);
 }
 
 function setMode(mode, updateHash = true) {
@@ -743,11 +730,15 @@ elements.generateIphonePassword.addEventListener("click", () => {
 elements.iphoneSharePassword.addEventListener("keydown", (event) => {
   if (event.key === "Enter") createIphoneHostSession();
 });
-elements.openMoblinButton.addEventListener("click", openMoblin);
-elements.copyMoblinUrlButton.addEventListener("click", async () => {
-  if (!iphonePublishUrl) return;
-  await navigator.clipboard.writeText(iphonePublishUrl);
-  showToast("Private Moblin URL copied — do not share it");
+elements.copyStreamChampServerButton.addEventListener("click", async () => {
+  if (!iphoneRtmpsUrl) return;
+  await navigator.clipboard.writeText(iphoneRtmpsUrl);
+  showToast("Server URL copied");
+});
+elements.copyStreamChampKeyButton.addEventListener("click", async () => {
+  if (!iphoneRtmpsStreamKey) return;
+  await navigator.clipboard.writeText(iphoneRtmpsStreamKey);
+  showToast("Private stream key copied — do not share it");
 });
 elements.copyIphoneAccessButton.addEventListener("click", async () => {
   if (!iphoneSessionCode) return;
