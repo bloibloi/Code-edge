@@ -17,6 +17,9 @@ type StoredSession = {
   viewerSecret?: string;
   offer?: string;
   answer?: string;
+  passwordSalt?: string;
+  passwordHash?: string;
+  failedAttempts?: number;
 };
 
 type LiveInputResponse = {
@@ -95,7 +98,10 @@ export class PairingSession extends DurableObject<Env> {
         kind: "desktop",
         secret: body.secret,
         expiresAt: Number(body.expiresAt),
-        state: "waiting"
+        state: "waiting",
+        passwordSalt: body.passwordSalt,
+        passwordHash: body.passwordHash,
+        failedAttempts: 0
       });
       return json({ ok: true });
     }
@@ -110,8 +116,15 @@ export class PairingSession extends DurableObject<Env> {
     }
 
     if (url.pathname === "/desktop/join" && request.method === "POST") {
-      if (expired || current.kind !== "desktop" || !current.offer || current.state === "claimed") {
-        return json({ error: "That desktop code is invalid, expired, or already used." }, 404);
+      const genericError = "The code or password is incorrect, expired, or already used.";
+      if (expired || current.kind !== "desktop" || !current.offer || current.state === "claimed" || (current.failedAttempts || 0) >= 8) {
+        return json({ error: genericError }, 404);
+      }
+      const candidateHash = await hashPassword(body.password || "", current.passwordSalt || "");
+      if (!secureEqual(candidateHash, current.passwordHash || "")) {
+        current.failedAttempts = (current.failedAttempts || 0) + 1;
+        await this.ctx.storage.put("session", current);
+        return json({ error: genericError }, 404);
       }
       current.viewerSecret = body.viewerSecret;
       current.state = "claimed";
@@ -159,7 +172,7 @@ export default {
       } else if (url.pathname === "/v1/pair/status" && request.method === "GET") {
         response = await pairingStatus(url, env);
       } else if (url.pathname === "/v1/desktop/create" && request.method === "POST") {
-        response = await createDesktopSession(env);
+        response = await createDesktopSession(request, env);
       } else if (url.pathname === "/v1/desktop/offer" && request.method === "POST") {
         response = await setDesktopOffer(request, env);
       } else if (url.pathname === "/v1/desktop/join" && request.method === "POST") {
@@ -255,15 +268,22 @@ async function pairingStatus(url: URL, env: Env): Promise<Response> {
   });
 }
 
-async function createDesktopSession(env: Env): Promise<Response> {
+async function createDesktopSession(request: Request, env: Env): Promise<Response> {
+  const body = await request.json<{ password?: string }>();
+  const password = body.password || "";
+  if (password.length < 8 || password.length > 128) {
+    return json({ error: "Use a password between 8 and 128 characters." }, 400);
+  }
   const secret = randomToken();
+  const passwordSalt = randomToken();
+  const passwordHash = await hashPassword(password, passwordSalt);
   const expiresAt = Date.now() + SESSION_TTL_MS;
   for (let attempt = 0; attempt < 8; attempt += 1) {
     const code = randomCode();
     const stub = env.PAIRING_SESSION.getByName(code);
     const reserved = await stub.fetch("https://session/desktop/reserve", {
       method: "POST",
-      body: JSON.stringify({ secret, expiresAt })
+      body: JSON.stringify({ secret, expiresAt, passwordSalt, passwordHash })
     });
     if (reserved.ok) {
       return json({ code, hostToken: `${code}.${secret}`, expiresAt: new Date(expiresAt).toISOString() });
@@ -283,13 +303,16 @@ async function setDesktopOffer(request: Request, env: Env): Promise<Response> {
 }
 
 async function joinDesktopSession(request: Request, env: Env): Promise<Response> {
-  const body = await request.json<{ code?: string }>();
+  const body = await request.json<{ code?: string; password?: string }>();
   const code = (body.code || "").replace(/\D/g, "");
   if (!/^\d{6}$/.test(code)) return json({ error: "Enter the six-digit desktop code." }, 400);
+  if (!body.password || body.password.length < 8 || body.password.length > 128) {
+    return json({ error: "Enter the session password." }, 400);
+  }
   const viewerSecret = randomToken();
   const response = await env.PAIRING_SESSION.getByName(code).fetch("https://session/desktop/join", {
     method: "POST",
-    body: JSON.stringify({ viewerSecret })
+    body: JSON.stringify({ viewerSecret, password: body.password })
   });
   const payload = await response.json<Record<string, unknown>>();
   if (!response.ok) return json(payload, response.status);
@@ -328,6 +351,26 @@ async function releaseDesktopSession(request: Request, env: Env): Promise<Respon
 function parseToken(value: string | null | undefined): { code: string; secret: string } | null {
   const [code, secret] = (value || "").split(".", 2);
   return /^\d{6}$/.test(code) && Boolean(secret) ? { code, secret } : null;
+}
+
+async function hashPassword(password: string, salt: string): Promise<string> {
+  const encoder = new TextEncoder();
+  const key = await crypto.subtle.importKey("raw", encoder.encode(password), "PBKDF2", false, ["deriveBits"]);
+  const bits = await crypto.subtle.deriveBits(
+    { name: "PBKDF2", hash: "SHA-256", salt: encoder.encode(salt), iterations: 150_000 },
+    key,
+    256
+  );
+  return btoa(String.fromCharCode(...new Uint8Array(bits)));
+}
+
+function secureEqual(left: string, right: string): boolean {
+  const length = Math.max(left.length, right.length);
+  let difference = left.length ^ right.length;
+  for (let index = 0; index < length; index += 1) {
+    difference |= (left.charCodeAt(index) || 0) ^ (right.charCodeAt(index) || 0);
+  }
+  return difference === 0;
 }
 
 async function createCloudflareLiveInput(env: Env, code: string) {
