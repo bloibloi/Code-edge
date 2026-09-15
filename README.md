@@ -53,7 +53,7 @@ See [worker/README.md](worker/README.md) and [ios/README.md](ios/README.md) for 
 
 ## Plex Media tab
 
-The **Media** tab signs in through Plex's hosted authorization page. The frontend receives only an opaque Remote Screen session ID. The Plex token, secure server address, library API calls, artwork, and media bytes stay behind the Cloudflare Worker; no Plex credentials belong in this repository or in `config.js`.
+The **Media** tab is protected by a website password. The Worker reads the long-lived Plex token and password from the `PLEX_TOKEN` and `PLEX_SITE_PASSWORD` Cloudflare secrets. After login, the frontend receives only an opaque 30-day session ID. The Plex token, secure server address, library API calls, artwork, and media bytes stay behind the Cloudflare Worker; no Plex credentials belong in this repository or in `config.js`.
 
 The player Direct Plays browser-friendly MP4/WebM files containing H.264, VP8, VP9, or AV1 video with AAC, MP3, Opus, or Vorbis audio. Other containers/codecs—including MKV, MPEG-2, and HEVC in browsers that do not advertise support—use Plex's universal transcode endpoint to produce H.264/AAC MP4. Transcoding requires the Plex Media Server to be online and powerful enough, and some remote-playback features may depend on the Plex account/server configuration. DRM is never bypassed.
 
