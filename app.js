@@ -30,6 +30,16 @@ const elements = {
   iphoneJoinCopy: document.querySelector("#iphoneJoinCopy"),
   joinIphoneButton: document.querySelector("#joinIphoneButton"),
   leaveIphoneButton: document.querySelector("#leaveIphoneButton"),
+  iphoneHostPanel: document.querySelector("#iphoneHostPanel"),
+  iphoneSharePassword: document.querySelector("#iphoneSharePassword"),
+  generateIphonePassword: document.querySelector("#generateIphonePassword"),
+  createIphoneButton: document.querySelector("#createIphoneButton"),
+  iphoneHostResult: document.querySelector("#iphoneHostResult"),
+  iphoneShareDigits: document.querySelector("#iphoneShareDigits"),
+  openMoblinButton: document.querySelector("#openMoblinButton"),
+  copyMoblinUrlButton: document.querySelector("#copyMoblinUrlButton"),
+  copyIphoneAccessButton: document.querySelector("#copyIphoneAccessButton"),
+  endIphoneSessionButton: document.querySelector("#endIphoneSessionButton"),
   modeTabs: [...document.querySelectorAll("[data-mode]")],
   modePages: [...document.querySelectorAll("[data-page]")],
   desktopPreview: document.querySelector("#desktopPreview"),
@@ -73,11 +83,99 @@ let desktopViewerToken = "";
 let desktopAnswerTimer = null;
 let desktopSessionCode = "";
 let desktopSessionPassword = "";
+let iphonePublisherToken = "";
+let iphonePublishUrl = "";
+let iphoneSessionCode = "";
+let iphoneSessionPassword = "";
+let iphoneViewerToken = "";
 
 function generateSecurePassword() {
   const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789!@#$%";
   const bytes = crypto.getRandomValues(new Uint8Array(20));
   return [...bytes].map((value) => alphabet[value % alphabet.length]).join("");
+}
+
+function buildMoblinUrl(publishUrl) {
+  const settings = {
+    streams: [{
+      name: `Remote Screen ${iphoneSessionCode}`,
+      url: publishUrl,
+      video: { codec: "H.264/AVC" }
+    }]
+  };
+  return `moblin://?${encodeURIComponent(JSON.stringify(settings))}`;
+}
+
+async function createIphoneHostSession() {
+  const password = elements.iphoneSharePassword.value;
+  if (password.length < 10) {
+    showToast("Use at least 10 characters");
+    elements.iphoneSharePassword.focus();
+    return;
+  }
+
+  await endIphoneHostSession(false);
+  elements.createIphoneButton.disabled = true;
+  elements.createIphoneButton.textContent = "Creating…";
+  setStatus("connecting", "Creating private stream…");
+  try {
+    const session = await apiRequest("/v1/iphone/create", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ password })
+    });
+    if (!/^\d{6}$/.test(session.code) || !session.publisherToken || !/^https:\/\//.test(session.whipPublishURL || "")) {
+      throw new Error("The stream server returned invalid session details.");
+    }
+    iphonePublisherToken = session.publisherToken;
+    iphonePublishUrl = session.whipPublishURL;
+    iphoneSessionCode = session.code;
+    iphoneSessionPassword = password;
+    elements.iphoneSharePassword.disabled = true;
+    elements.generateIphonePassword.disabled = true;
+    elements.iphoneShareDigits.textContent = `${session.code.slice(0, 3)} ${session.code.slice(3)}`;
+    elements.iphoneHostResult.classList.remove("hidden");
+    elements.createIphoneButton.classList.add("hidden");
+    setStatus("waiting", "Ready for Moblin");
+    showToast("Private stream created");
+  } catch (error) {
+    setStatus("error", "Could not create stream");
+    showToast(error.message || "Could not create the stream");
+  } finally {
+    elements.createIphoneButton.disabled = false;
+    elements.createIphoneButton.textContent = "Create private stream";
+  }
+}
+
+async function endIphoneHostSession(notifyServer = true) {
+  const token = iphonePublisherToken;
+  iphonePublisherToken = "";
+  iphonePublishUrl = "";
+  iphoneSessionCode = "";
+  iphoneSessionPassword = "";
+  elements.iphoneHostResult.classList.add("hidden");
+  elements.createIphoneButton.classList.remove("hidden");
+  elements.iphoneSharePassword.disabled = false;
+  elements.iphoneSharePassword.type = "password";
+  elements.iphoneSharePassword.value = "";
+  elements.generateIphonePassword.disabled = false;
+  if (notifyServer && token) {
+    try {
+      await apiRequest("/v1/iphone/release", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ token })
+      });
+    } catch { /* The session expires automatically. */ }
+  }
+}
+
+function openMoblin() {
+  if (!iphonePublishUrl) return;
+  window.location.href = buildMoblinUrl(iphonePublishUrl);
+  setTimeout(() => {
+    if (!document.hidden) showToast("If Moblin did not open, install it from the App Store");
+  }, 1500);
 }
 
 function setMode(mode, updateHash = true) {
@@ -166,7 +264,7 @@ async function joinIphoneStream() {
     elements.iphoneJoinCode.focus();
     return;
   }
-  if (password.length < 8) {
+  if (password.length < 10) {
     showToast("Enter the iPhone session password");
     elements.iphoneJoinPassword.focus();
     return;
@@ -182,10 +280,11 @@ async function joinIphoneStream() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ code, password })
     });
-    if (classifyUrl(session.playbackURL) !== "whep") throw new Error("The stream server returned an invalid playback address.");
-    localStorage.setItem(STORAGE_KEY, session.playbackURL);
+    if (!session.viewerToken) throw new Error("The stream server returned invalid access details.");
+    iphoneViewerToken = session.viewerToken;
+    localStorage.removeItem(STORAGE_KEY);
     localStorage.removeItem(LEGACY_STORAGE_KEY);
-    elements.playbackUrl.value = session.playbackURL;
+    elements.playbackUrl.value = "";
     elements.iphoneJoinPassword.value = "";
     elements.leaveIphoneButton.classList.remove("hidden");
     elements.forgetButton.classList.remove("hidden");
@@ -206,6 +305,7 @@ async function leaveIphoneStream() {
   connectionAttempt += 1;
   localStorage.removeItem(STORAGE_KEY);
   localStorage.removeItem(LEGACY_STORAGE_KEY);
+  iphoneViewerToken = "";
   elements.playbackUrl.value = "";
   elements.forgetButton.classList.add("hidden");
   elements.leaveIphoneButton.classList.add("hidden");
@@ -214,8 +314,8 @@ async function leaveIphoneStream() {
   setStatus("idle", "Enter code and password");
   elements.streamMessage.textContent = "Waiting for setup";
   elements.reconnectButton.disabled = true;
-  elements.iphoneJoinCopy.textContent = "Open iPhone Remote and create a stream, then enter its code and password here.";
-  setEmpty("Enter your iPhone details", "Use the join code and password shown in the iPhone Remote app.", "Enter details");
+  elements.iphoneJoinCopy.textContent = "Create the stream on the iPhone, then enter its code and password here.";
+  setEmpty("Enter your iPhone details", "Use the join code and password created on the iPhone.", "Enter details");
 }
 
 async function startDesktopShare() {
@@ -463,7 +563,7 @@ async function closeSession(sendDelete = true) {
 }
 
 function scheduleRetry(message = "Waiting for the iPhone broadcast…") {
-  if (stoppedByUser || classifyUrl(getSavedUrl()) !== "whep") return;
+  if (stoppedByUser || (!iphoneViewerToken && classifyUrl(getSavedUrl()) !== "whep")) return;
   clearTimeout(retryTimer);
   setStatus("waiting", "Waiting for iPhone");
   elements.streamMessage.textContent = message;
@@ -485,12 +585,13 @@ function loadIframe(url) {
 
 async function connectPlayback(isRetry = false) {
   const playbackUrl = getSavedUrl();
-  const mode = classifyUrl(playbackUrl);
-  if (!playbackUrl || mode === "invalid") {
+  const privateSession = Boolean(iphoneViewerToken);
+  const mode = privateSession ? "private" : classifyUrl(playbackUrl);
+  if ((!privateSession && !playbackUrl) || mode === "invalid") {
     setStatus("idle", "Enter code and password");
     elements.streamMessage.textContent = "Waiting for setup";
     elements.reconnectButton.disabled = true;
-    setEmpty("Enter your iPhone details", "Use the join code and password shown in the iPhone Remote app.", "Enter details");
+    setEmpty("Enter your iPhone details", "Use the join code and password created on the iPhone.", "Enter details");
     return;
   }
 
@@ -545,15 +646,27 @@ async function connectPlayback(isRetry = false) {
     await pc.setLocalDescription(offer);
     await waitForIceGathering(pc);
     if (attempt !== connectionAttempt) return;
-    const response = await fetch(playbackUrl, {
-      method: "POST",
-      headers: { "Content-Type": "application/sdp" },
-      body: pc.localDescription.sdp
-    });
-    if (!response.ok) throw new Error(`WHEP returned ${response.status}`);
-    const answer = await response.text();
-    const location = response.headers.get("Location");
-    sessionUrl = location ? new URL(location, playbackUrl).toString() : "";
+    let answer;
+    if (privateSession) {
+      const result = await apiRequest("/v1/iphone/play", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ token: iphoneViewerToken, sdp: pc.localDescription.sdp })
+      });
+      answer = result.answer;
+      sessionUrl = "";
+    } else {
+      const response = await fetch(playbackUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/sdp" },
+        body: pc.localDescription.sdp
+      });
+      if (!response.ok) throw new Error(`WHEP returned ${response.status}`);
+      answer = await response.text();
+      const location = response.headers.get("Location");
+      sessionUrl = location ? new URL(location, playbackUrl).toString() : "";
+    }
+    if (!answer) throw new Error("The private playback server returned no answer.");
     await pc.setRemoteDescription({ type: "answer", sdp: answer });
     elements.reconnectButton.disabled = false;
   } catch (error) {
@@ -633,6 +746,30 @@ elements.desktopFullscreenButton.addEventListener("click", async () => {
 });
 elements.joinIphoneButton.addEventListener("click", joinIphoneStream);
 elements.leaveIphoneButton.addEventListener("click", leaveIphoneStream);
+elements.createIphoneButton.addEventListener("click", createIphoneHostSession);
+elements.generateIphonePassword.addEventListener("click", () => {
+  elements.iphoneSharePassword.value = generateSecurePassword();
+  elements.iphoneSharePassword.type = "text";
+});
+elements.iphoneSharePassword.addEventListener("keydown", (event) => {
+  if (event.key === "Enter") createIphoneHostSession();
+});
+elements.openMoblinButton.addEventListener("click", openMoblin);
+elements.copyMoblinUrlButton.addEventListener("click", async () => {
+  if (!iphonePublishUrl) return;
+  await navigator.clipboard.writeText(iphonePublishUrl);
+  showToast("Private Moblin URL copied — do not share it");
+});
+elements.copyIphoneAccessButton.addEventListener("click", async () => {
+  if (!iphoneSessionCode) return;
+  await navigator.clipboard.writeText(`Remote Screen\nCode: ${iphoneSessionCode}\nPassword: ${iphoneSessionPassword}`);
+  showToast("Code and password copied");
+});
+elements.endIphoneSessionButton.addEventListener("click", async () => {
+  await endIphoneHostSession();
+  setStatus("idle", "Session ended");
+  showToast("Private session ended");
+});
 elements.iphoneJoinCode.addEventListener("input", () => {
   const digits = elements.iphoneJoinCode.value.replace(/\D/g, "").slice(0, 6);
   elements.iphoneJoinCode.value = digits.length > 3 ? `${digits.slice(0, 3)} ${digits.slice(3)}` : digits;
@@ -696,7 +833,7 @@ elements.fullscreenButton.addEventListener("click", async () => {
   }
 });
 document.addEventListener("visibilitychange", () => {
-  if (!document.hidden && getSavedUrl() && playbackMode === "whep" && peer?.connectionState !== "connected") connectPlayback(true);
+  if (!document.hidden && (iphoneViewerToken || getSavedUrl()) && playbackMode === "whep" && peer?.connectionState !== "connected") connectPlayback(true);
 });
 window.addEventListener("beforeunload", () => {
   stoppedByUser = true;
@@ -704,6 +841,8 @@ window.addEventListener("beforeunload", () => {
   leaveDesktopShare(false);
   closeSession();
 });
+
+if (/iPhone|iPad|iPod/i.test(navigator.userAgent)) elements.iphoneHostPanel.open = true;
 
 const savedUrl = getSavedUrl();
 if (savedUrl) {
