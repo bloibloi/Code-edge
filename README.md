@@ -1,6 +1,6 @@
 # iPhone Remote
 
-A private, view-only iPhone screen viewer designed for a Chromebook. The iPhone publishes its screen from StreamChamp to Cloudflare Stream over RTMPS, and the browser receives it over WHEP/WebRTC.
+A private, view-only iPhone screen viewer designed for a Chromebook. The iPhone publishes its screen from StreamChamp to LiveKit over RTMPS, and viewers receive it over WebRTC.
 
 Live website: https://bloibloi.github.io/Code-edge/
 
@@ -18,15 +18,15 @@ The website is view-only. A Bluetooth mouse or keyboard can be paired directly w
 ```text
 StreamChamp + iOS Screen Broadcast
     └── secure RTMPS publish
-          └── Cloudflare Stream Live Input
-                └── WHEP/WebRTC playback
+          └── LiveKit Ingress
+                └── private WebRTC room
                       └── Chromebook website
 
 GitHub Pages ── six-digit code ── Cloudflare pairing Worker
-                                      └── creates short-lived Live Input
+                                      └── creates short-lived LiveKit ingress
 ```
 
-The Cloudflare API token never enters the GitHub Pages site. The API token is a Worker secret. The private RTMPS stream key is returned only to the device that creates the session. The raw WHEP playback URL remains inside the Worker; a viewer receives only an unguessable, short-lived token after supplying the temporary code.
+The LiveKit API secret never enters the GitHub Pages site. It remains a Worker secret. The private RTMPS stream key is returned only to the device that creates the session, while viewers receive restricted subscribe-only room tokens after supplying the temporary code.
 
 ## Project layout
 
@@ -47,8 +47,8 @@ See [worker/README.md](worker/README.md) and [ios/README.md](ios/README.md) for 
 - Everything visible on the iPhone, including notifications, may appear in the stream. Enable Focus first.
 - iPhone and relayed desktop sessions expire after fifteen minutes and admit up to five code-authorized viewers.
 - Passwords are temporarily disabled. Anyone with the code can attempt to join, so codes must be shared carefully.
-- Private playback requests are authorized and proxied by the Worker, so the Cloudflare playback URL is not exposed to the viewer.
-- Cloudflare recording is disabled for sessions created by the Worker.
+- Viewer tokens permit subscribing only; they cannot publish media to the room.
+- Recording is not enabled. LiveKit ingresses are deleted when a host ends a session or when its fifteen-minute alarm expires.
 - DRM-protected content may be blank or blocked. This project does not bypass iOS capture or DRM restrictions.
 
 ## Local website preview
