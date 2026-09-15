@@ -17,6 +17,7 @@ type PlexState = {
   username?: string;
   servers?: PlexServer[];
   selectedServerId?: string;
+  connectionCheckedAt?: number;
 };
 
 const PLEX_PRODUCT = "Remote Screen";
@@ -338,7 +339,7 @@ export default {
       } else if (url.pathname === "/health") {
         response = json({
           ok: true,
-          version: "plex-522-relay-fallback-2",
+          version: "plex-fast-route-cache-3",
           streamConfigured: Boolean(env.CLOUDFLARE_ACCOUNT_ID && env.CLOUDFLARE_API_TOKEN),
           pairingStorageConfigured: Boolean(env.PAIRING_SESSION),
           plexStorageConfigured: Boolean(env.PLEX_SESSION)
@@ -653,12 +654,13 @@ async function plexAuthStatus(request: Request, env: Env): Promise<Response> {
   const user = await userResponse.json<{ username?: string; email?: string }>();
   const resources = await resourcesResponse.json<Array<Record<string, unknown>>>();
   if (!userResponse.ok || !resourcesResponse.ok) throw new PublicError("Plex account information could not be loaded.");
-  const servers = parsePlexServers(resources, pin.authToken);
+  const servers = await probePlexServers(parsePlexServers(resources, pin.authToken), pin.authToken);
   const updated: Partial<PlexState> = {
     plexToken: pin.authToken,
     username: user.username || user.email || "Plex account",
     servers,
-    selectedServerId: servers[0]?.id
+    selectedServerId: servers[0]?.id,
+    connectionCheckedAt: Date.now()
   };
   await auth.stub.fetch("https://plex/update", { method: "POST", body: JSON.stringify(updated) });
   return json(plexPublicSession({ ...auth.state, ...updated }));
@@ -672,12 +674,16 @@ async function plexLogout(request: Request, env: Env): Promise<Response> {
 
 async function plexServers(request: Request, env: Env): Promise<Response> {
   const auth = await readPlexState(request, env);
+  if (auth.state.servers?.length && auth.state.connectionCheckedAt && Date.now() - auth.state.connectionCheckedAt < 10 * 60 * 1000) {
+    return json(plexPublicSession(auth.state));
+  }
   const response = await fetch("https://plex.tv/api/v2/resources?includeHttps=1&includeRelay=1", { headers: plexHeaders(auth.state.plexToken) });
   if (!response.ok) throw new PublicError("Plex server connections could not be refreshed.");
-  const servers = parsePlexServers(await response.json<Array<Record<string, unknown>>>(), auth.state.plexToken || "");
+  const servers = await probePlexServers(parsePlexServers(await response.json<Array<Record<string, unknown>>>(), auth.state.plexToken || ""), auth.state.plexToken || "");
   const selectedServerId = servers.some((server) => server.id === auth.state.selectedServerId) ? auth.state.selectedServerId : servers[0]?.id;
-  await auth.stub.fetch("https://plex/update", { method: "POST", body: JSON.stringify({ servers, selectedServerId }) });
-  return json(plexPublicSession({ ...auth.state, servers, selectedServerId }));
+  const connectionCheckedAt = Date.now();
+  await auth.stub.fetch("https://plex/update", { method: "POST", body: JSON.stringify({ servers, selectedServerId, connectionCheckedAt }) });
+  return json(plexPublicSession({ ...auth.state, servers, selectedServerId, connectionCheckedAt }));
 }
 
 async function selectPlexServer(request: Request, env: Env): Promise<Response> {
@@ -690,17 +696,29 @@ async function selectPlexServer(request: Request, env: Env): Promise<Response> {
 
 async function plexLibraries(request: Request, env: Env): Promise<Response> {
   const auth = await readPlexState(request, env);
+  const cacheKey = await plexCacheRequest(auth.state, "libraries");
+  const cached = await caches.default.match(cacheKey);
+  if (cached) return cached;
   const payload = await plexServerJson(auth.state, "/library/sections");
   const directories = plexArray(payload, "Directory");
-  return json({ libraries: directories.filter((item) => ["movie", "show"].includes(String(item.type))).map((item) => ({
+  const result = json({ libraries: directories.filter((item) => ["movie", "show"].includes(String(item.type))).map((item) => ({
     key: String(item.key || ""), title: String(item.title || "Library"), type: String(item.type || "")
   })) });
+  await cachePlexResponse(cacheKey, result, 300);
+  return result;
 }
 
 async function plexLibraryItems(request: Request, env: Env, libraryKey: string): Promise<Response> {
   const auth = await readPlexState(request, env);
-  const payload = await plexServerJson(auth.state, `/library/sections/${libraryKey}/all?sort=titleSort`);
-  return json({ items: plexArray(payload, "Metadata").slice(0, 500).map((item) => normalizePlexItem(item)) });
+  const cacheKey = await plexCacheRequest(auth.state, `library-${libraryKey}`);
+  const cached = await caches.default.match(cacheKey);
+  if (cached) return cached;
+  const payload = await plexServerJson(auth.state, `/library/sections/${libraryKey}/all?sort=titleSort&includeMeta=0&includeGuids=0&includeExtras=0`, {
+    "X-Plex-Container-Start": "0", "X-Plex-Container-Size": "500"
+  });
+  const result = json({ items: plexArray(payload, "Metadata").slice(0, 500).map((item) => normalizePlexItem(item)) });
+  await cachePlexResponse(cacheKey, result, 120);
+  return result;
 }
 
 async function plexItem(request: Request, env: Env, ratingKey: string): Promise<Response> {
@@ -831,8 +849,8 @@ async function plexServerFetch(state: PlexState, path: string, init: RequestInit
   throw new HttpError("Plex could not reach this server securely. Enable Remote Access in Plex Server settings.", 502);
 }
 
-async function plexServerJson(state: PlexState, path: string): Promise<Record<string, unknown>> {
-  const response = await plexServerFetch(state, path);
+async function plexServerJson(state: PlexState, path: string, headers?: Record<string, string>): Promise<Record<string, unknown>> {
+  const response = await plexServerFetch(state, path, { headers });
   if (!response.ok) throw new PublicError(`Plex Media Server returned HTTP ${response.status}.`);
   return response.json<Record<string, unknown>>();
 }
@@ -897,6 +915,36 @@ function parsePlexServers(resources: Array<Record<string, unknown>>, accountToke
       accessToken: String(resource.accessToken || accountToken)
     }];
   }).filter((server) => server.id);
+}
+
+async function probePlexServers(servers: PlexServer[], accountToken: string): Promise<PlexServer[]> {
+  return Promise.all(servers.map(async (server) => {
+    const probes = await Promise.all(server.uris.map(async (uri, index) => {
+      try {
+        const response = await fetch(`${uri}/identity`, {
+          headers: plexHeaders(server.accessToken || accountToken),
+          signal: AbortSignal.timeout(5000)
+        });
+        return { uri, index, score: response.ok ? 2 : response.status < 500 ? 1 : 0 };
+      } catch { return { uri, index, score: 0 }; }
+    }));
+    probes.sort((left, right) => right.score - left.score || left.index - right.index);
+    return { ...server, uris: probes.map((probe) => probe.uri) };
+  }));
+}
+
+async function plexCacheRequest(state: PlexState, suffix: string): Promise<Request> {
+  const server = selectedPlexServer(state);
+  const token = server.accessToken || state.plexToken || "";
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(`${server.id}\u0000${token}`));
+  const accountKey = [...new Uint8Array(digest)].slice(0, 12).map((byte) => byte.toString(16).padStart(2, "0")).join("");
+  return new Request(`https://plex-cache.invalid/${accountKey}/${encodeURIComponent(suffix)}`);
+}
+
+async function cachePlexResponse(key: Request, response: Response, seconds: number): Promise<void> {
+  const cached = new Response(response.clone().body, { status: response.status, headers: response.headers });
+  cached.headers.set("Cache-Control", `public, max-age=${seconds}`);
+  await caches.default.put(key, cached);
 }
 
 function connectionRank(connection: Record<string, unknown>): number {
