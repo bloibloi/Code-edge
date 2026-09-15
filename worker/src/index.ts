@@ -8,7 +8,7 @@ export interface Env {
   ALLOWED_ORIGIN: string;
 }
 
-type PlexServer = { id: string; name: string; uri: string; accessToken?: string };
+type PlexServer = { id: string; name: string; uris: string[]; uri?: string; accessToken?: string };
 type PlexState = {
   pinId: number;
   pinCode: string;
@@ -652,20 +652,7 @@ async function plexAuthStatus(request: Request, env: Env): Promise<Response> {
   const user = await userResponse.json<{ username?: string; email?: string }>();
   const resources = await resourcesResponse.json<Array<Record<string, unknown>>>();
   if (!userResponse.ok || !resourcesResponse.ok) throw new PublicError("Plex account information could not be loaded.");
-  const servers = resources.filter((resource) => {
-    const provides = String(resource.provides || "").split(",");
-    return provides.includes("server");
-  }).flatMap((resource) => {
-    const connections = Array.isArray(resource.connections) ? resource.connections as Array<Record<string, unknown>> : [];
-    const connection = connections.find((entry) => isSecurePlexUri(entry.uri)) || null;
-    if (!connection) return [];
-    return [{
-      id: String(resource.clientIdentifier || ""),
-      name: String(resource.name || "Plex Server"),
-      uri: String(connection.uri).replace(/\/$/, ""),
-      accessToken: String(resource.accessToken || pin.authToken)
-    }];
-  }).filter((server) => server.id);
+  const servers = parsePlexServers(resources, pin.authToken);
   const updated: Partial<PlexState> = {
     plexToken: pin.authToken,
     username: user.username || user.email || "Plex account",
@@ -683,8 +670,13 @@ async function plexLogout(request: Request, env: Env): Promise<Response> {
 }
 
 async function plexServers(request: Request, env: Env): Promise<Response> {
-  const { state } = await readPlexState(request, env);
-  return json(plexPublicSession(state));
+  const auth = await readPlexState(request, env);
+  const response = await fetch("https://plex.tv/api/v2/resources?includeHttps=1&includeRelay=1", { headers: plexHeaders(auth.state.plexToken) });
+  if (!response.ok) throw new PublicError("Plex server connections could not be refreshed.");
+  const servers = parsePlexServers(await response.json<Array<Record<string, unknown>>>(), auth.state.plexToken || "");
+  const selectedServerId = servers.some((server) => server.id === auth.state.selectedServerId) ? auth.state.selectedServerId : servers[0]?.id;
+  await auth.stub.fetch("https://plex/update", { method: "POST", body: JSON.stringify({ servers, selectedServerId }) });
+  return json(plexPublicSession({ ...auth.state, servers, selectedServerId }));
 }
 
 async function selectPlexServer(request: Request, env: Env): Promise<Response> {
@@ -802,6 +794,9 @@ function plexHeaders(token?: string): Record<string, string> {
     "X-Plex-Version": "1.0",
     "X-Plex-Client-Identifier": PLEX_CLIENT_ID,
     "X-Plex-Platform": "Web",
+    "X-Plex-Device": "Cloudflare Worker",
+    "X-Plex-Device-Name": PLEX_PRODUCT,
+    "X-Plex-Provides": "player",
     ...(token ? { "X-Plex-Token": token } : {})
   };
 }
@@ -822,7 +817,17 @@ async function plexServerFetch(state: PlexState, path: string, init: RequestInit
   const server = selectedPlexServer(state);
   const headers = new Headers(init.headers);
   Object.entries(plexHeaders(server.accessToken || state.plexToken)).forEach(([key, value]) => headers.set(key, value));
-  return fetch(`${server.uri}${path}`, { ...init, headers, redirect: "follow" });
+  const uris = [...new Set([...(server.uris || []), ...(server.uri ? [server.uri] : [])])];
+  let lastResponse: Response | undefined;
+  for (const uri of uris) {
+    try {
+      const response = await fetch(`${uri}${path}`, { ...init, headers, redirect: "follow" });
+      lastResponse = response;
+      if (![401, 403, 502, 503, 504].includes(response.status)) return response;
+    } catch { /* Try the next Plex-provided secure connection. */ }
+  }
+  if (lastResponse) return lastResponse;
+  throw new HttpError("Plex could not reach this server securely. Enable Remote Access in Plex Server settings.", 502);
 }
 
 async function plexServerJson(state: PlexState, path: string): Promise<Record<string, unknown>> {
@@ -875,6 +880,26 @@ function safePlexPath(path: string): boolean {
 function isSecurePlexUri(value: unknown): boolean {
   if (typeof value !== "string") return false;
   try { return new URL(value).protocol === "https:"; } catch { return false; }
+}
+
+function parsePlexServers(resources: Array<Record<string, unknown>>, accountToken: string): PlexServer[] {
+  return resources.filter((resource) => String(resource.provides || "").split(",").includes("server")).flatMap((resource) => {
+    const connections = Array.isArray(resource.connections) ? resource.connections as Array<Record<string, unknown>> : [];
+    const secure = connections.filter((entry) => isSecurePlexUri(entry.uri)).sort((left, right) => connectionRank(left) - connectionRank(right));
+    if (!secure.length) return [];
+    return [{
+      id: String(resource.clientIdentifier || ""),
+      name: String(resource.name || "Plex Server"),
+      uris: secure.map((entry) => String(entry.uri).replace(/\/$/, "")),
+      accessToken: String(resource.accessToken || accountToken)
+    }];
+  }).filter((server) => server.id);
+}
+
+function connectionRank(connection: Record<string, unknown>): number {
+  if (!connection.local && !connection.relay) return 0;
+  if (connection.relay) return 1;
+  return 2;
 }
 
 function copyMediaHeaders(source: Headers): Headers {
