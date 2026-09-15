@@ -15,6 +15,7 @@ type StoredSession = {
   whipPublishURL?: string;
   whepPlaybackURL?: string;
   viewerSecret?: string;
+  viewerSecrets?: string[];
   offer?: string;
   answer?: string;
   passwordSalt?: string;
@@ -33,6 +34,7 @@ type LiveInputResponse = {
 
 const SESSION_TTL_MS = 5 * 60 * 1000;
 const IPHONE_SESSION_TTL_MS = 15 * 60 * 1000;
+const MAX_IPHONE_VIEWERS = 5;
 
 export class PairingSession extends DurableObject<Env> {
   async fetch(request: Request): Promise<Response> {
@@ -120,7 +122,9 @@ export class PairingSession extends DurableObject<Env> {
 
     if (url.pathname === "/iphone/join" && request.method === "POST") {
       const genericError = "The code or password is incorrect, expired, or already used.";
-      if (expired || current.kind !== "iphone-host" || current.state !== "waiting" || !current.whepPlaybackURL || (current.failedAttempts || 0) >= 8) {
+      const viewers = current?.viewerSecrets || (current?.viewerSecret ? [current.viewerSecret] : []);
+      if (expired || current.kind !== "iphone-host" || !["waiting", "claimed"].includes(current.state) ||
+          !current.whepPlaybackURL || viewers.length >= MAX_IPHONE_VIEWERS || (current.failedAttempts || 0) >= 8) {
         return json({ error: genericError }, 404);
       }
       const candidateHash = await hashPassword(body.password || "", current.passwordSalt || "");
@@ -129,15 +133,17 @@ export class PairingSession extends DurableObject<Env> {
         await this.ctx.storage.put("session", current);
         return json({ error: genericError }, 404);
       }
-      current.viewerSecret = body.viewerSecret;
+      current.viewerSecrets = [...viewers, body.viewerSecret];
+      delete current.viewerSecret;
       current.state = "claimed";
       await this.ctx.storage.put("session", current);
-      return json({ expiresAt: new Date(current.expiresAt).toISOString() });
+      return json({ expiresAt: new Date(current.expiresAt).toISOString(), viewerCount: current.viewerSecrets.length });
     }
 
     if (url.pathname === "/iphone/play" && request.method === "POST") {
+      const viewers = current?.viewerSecrets || (current?.viewerSecret ? [current.viewerSecret] : []);
       if (expired || current.kind !== "iphone-host" || current.state !== "claimed" ||
-          current.viewerSecret !== body.viewerSecret || !current.whepPlaybackURL) {
+          !viewers.includes(body.viewerSecret) || !current.whepPlaybackURL) {
         return json({ error: "This private viewing session is not authorized." }, 403);
       }
       return json({ playbackURL: current.whepPlaybackURL });
@@ -147,7 +153,11 @@ export class PairingSession extends DurableObject<Env> {
       if (expired || current.kind !== "iphone-host" || current.secret !== body.secret) {
         return json({ error: "iPhone stream session expired." }, 404);
       }
-      return json({ joined: current.state === "claimed", expiresAt: new Date(current.expiresAt).toISOString() });
+      return json({
+        joined: current.state === "claimed",
+        viewerCount: current.viewerSecrets?.length || (current.viewerSecret ? 1 : 0),
+        expiresAt: new Date(current.expiresAt).toISOString()
+      });
     }
 
     if (url.pathname === "/iphone/release" && request.method === "POST") {
